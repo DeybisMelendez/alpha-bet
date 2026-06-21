@@ -40,6 +40,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "teams",
+    "matches",
+    "elo",
+    "forecasts",
+    "api_client",
 ]
 
 MIDDLEWARE = [
@@ -123,3 +128,67 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+
+
+# Football-Data.org API
+FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", "")
+FOOTBALL_DATA_API_BASE_URL = "https://api.football-data.org/v4"
+API_CACHE_TTL_MINUTES = 60
+
+# Popular competition codes for football-data.org
+FOOTBALL_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "CL", "WC"]
+
+# All competitions available in the free tier
+FOOTBALL_COMPETITIONS_ALL = [
+    "BSA", "ELC", "PL", "CL", "EC", "FL1", "BL1",
+    "SA", "DED", "PPL", "CLI", "PD", "WC",
+]
+
+# Elo system constants (see docs/elo.md)
+ELO_DEFAULT = 1500
+ELO_HOME_ADVANTAGE = 80
+ELO_K_DEFAULT = 20
+ELO_K_NEW = 40
+ELO_NEW_TEAM_MATCHES = 20
+
+# Initial Elo calibration per league (based on relative league strength).
+# Used when creating LeagueStrength entries and assigning Elo to new teams.
+# Teams from stronger leagues start higher; the system self-adjusts over time.
+ELO_LEAGUE_INITIAL = {
+    "PL": 1600,   # Premier League - strongest
+    "PD": 1570,   # La Liga
+    "BL1": 1560,  # Bundesliga
+    "SA": 1550,   # Serie A
+    "FL1": 1540,  # Ligue 1
+    "CL": 1600,   # Champions League (top European clubs)
+    "EC": 1580,   # European Championship
+    "WC": 1580,   # World Cup (international)
+    "ELC": 1300,  # Championship (second tier England)
+    "DED": 1450,  # Eredivisie
+    "PPL": 1450,  # Primeira Liga
+    "BSA": 1500,  # Brasileirão
+    "CLI": 1500,  # Copa Libertadores
+}
+
+# Forecast system constants (see docs/pronostico.md)
+FORECAST_FORM_MATCHES = 5
+FORECAST_MIN_HISTORY = 5
+POISSON_MAX_GOALS = 5
+
+
+# Logging
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "alpha": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+    },
+}

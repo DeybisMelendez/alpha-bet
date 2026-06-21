@@ -1,0 +1,109 @@
+from urllib.parse import urlencode
+
+import requests
+from django.conf import settings
+from django.utils import timezone
+
+from api_client.models import ApiResponseCache
+
+
+class FootballDataClient:
+    def __init__(
+        self,
+        token=None,
+        base_url=None,
+        cache_ttl_minutes=None,
+        timeout=30,
+    ):
+        self.token = token or settings.FOOTBALL_DATA_API_KEY
+        self.base_url = (base_url or settings.FOOTBALL_DATA_API_BASE_URL).rstrip("/")
+        self.cache_ttl = cache_ttl_minutes or settings.API_CACHE_TTL_MINUTES
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({"X-Auth-Token": self.token})
+
+    def _build_url(self, path, params=None):
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        return url
+
+    def _is_cache_fresh(self, cache):
+        if cache is None:
+            return False
+        age = timezone.now() - cache.fetched_at
+        return age.total_seconds() < self.cache_ttl * 60
+
+    def _get(self, path, params=None, use_cache=True):
+        url = self._build_url(path, params)
+
+        if use_cache:
+            cache = ApiResponseCache.objects.filter(url=url).first()
+            if self._is_cache_fresh(cache):
+                return cache.body
+
+        response = self.session.get(url, timeout=self.timeout)
+        response.raise_for_status()
+        body = response.json()
+
+        if use_cache:
+            ApiResponseCache.objects.update_or_create(
+                url=url, defaults={"body": body}
+            )
+        return body
+
+    def get_competitions(self):
+        return self._get("/competitions").get("competitions", [])
+
+    def get_competition(self, code):
+        return self._get(f"/competitions/{code}")
+
+    def get_competition_teams(self, code):
+        return self._get(f"/competitions/{code}/teams").get("teams", [])
+
+    def get_competition_matches(self, code, matchday=None, season=None):
+        params = {}
+        if matchday is not None:
+            params["matchday"] = matchday
+        if season is not None:
+            params["season"] = season
+        return self._get(f"/competitions/{code}/matches", params=params).get(
+            "matches", []
+        )
+
+    def get_team(self, team_id):
+        return self._get(f"/teams/{team_id}")
+
+    def get_team_matches(
+        self,
+        team_id,
+        limit=None,
+        date_from=None,
+        date_to=None,
+        status=None,
+        season=None,
+    ):
+        params = {}
+        if limit is not None:
+            params["limit"] = limit
+        if date_from is not None:
+            params["dateFrom"] = date_from
+        if date_to is not None:
+            params["dateTo"] = date_to
+        if status is not None:
+            params["status"] = status
+        if season is not None:
+            params["season"] = season
+        return self._get(f"/teams/{team_id}/matches", params=params).get(
+            "matches", []
+        )
+
+    def get_matches(self, date_from=None, date_to=None, competitions=None):
+        params = {}
+        if date_from is not None:
+            params["dateFrom"] = date_from
+        if date_to is not None:
+            params["dateTo"] = date_to
+        if competitions:
+            params["competitions"] = ",".join(competitions)
+        return self._get("/matches", params=params).get("matches", [])
