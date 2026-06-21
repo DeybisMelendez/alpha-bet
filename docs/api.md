@@ -212,6 +212,8 @@ for match in response.json()["matches"]:
 
 Con estos cuatro endpoints (`/matches`, `/competitions`, `/competitions/{code}/teams` y `/teams/{id}`) puedes construir una base sólida para una plataforma de pronósticos, rankings Elo o análisis estadístico de fútbol. ([Football Data][4])
 
+Nota: La api key se encuentra en el archivo ".secret" y debe leerse con dotenv.
+
 [1]: https://www.postman.com/api-noob/football-data-org-apis/documentation/yjgfm4j/football-data-org-v4?utm_source=chatgpt.com "Football-data.org v4 | Documentation | Postman API Network"
 [2]: https://www.football-data.org/documentation/api?utm_source=chatgpt.com "API Reference"
 [3]: https://docs.football-data.org/general/v4/competition.html?utm_source=chatgpt.com "Competition - football-data API documentation"
