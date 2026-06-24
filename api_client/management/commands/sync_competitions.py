@@ -30,6 +30,7 @@ class Command(BaseCommand):
 
             obj, created_flag = Competition.objects.update_or_create(
                 id_api=data["id"],
+                source=Competition.Source.FOOTBALLDATA,
                 defaults={
                     "code": data.get("code", code),
                     "name": data.get("name", ""),

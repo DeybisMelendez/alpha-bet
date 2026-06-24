@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Equipos · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Equipos</h1>
+<p class="text-muted">Ranking global por Elo.</p>
+
+<form method="get" class="mb-1">
+    <input type="text" name="q" value="{{ q }}" placeholder="Buscar equipo...">
+    <button type="submit">Buscar</button>
+</form>
+
+<table class="compact">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Equipo</th>
+            <th class="text-center">Elo</th>
+            <th class="text-center">Partidos</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for team in teams %}
+        <tr>
+            <td class="rank-num monospace">{{ forloop.counter }}</td>
+            <td>
+                <a href="{% url 'teams:detail' team.pk %}">{{ team.name }}</a>
+                {% if team.tla %}<span class="team-tla">{{ team.tla }}</span>{% endif %}
+            </td>
+            <td class="text-center monospace">{{ team.elo|floatformat:0 }}</td>
+            <td class="text-center monospace">{{ team.matches_played }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-muted">Sin equipos.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

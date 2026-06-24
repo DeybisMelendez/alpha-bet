@@ -214,6 +214,21 @@ Con estos cuatro endpoints (`/matches`, `/competitions`, `/competitions/{code}/t
 
 Nota: La api key se encuentra en el archivo ".secret" y debe leerse con dotenv.
 
+---
+
+# Coexistencia con API-Football
+
+football-data.org es una de las dos fuentes de datos del proyecto. La división
+de fuentes es excluyente (ver `docs/api_football.md`):
+
+* **football-data.org**: competiciones de clubes (PL, PD, BL1, SA, FL1, CL,
+  BSA, ELC, DED, PPL, CLI).
+* **API-Football**: selecciones nacionales (todas las confederaciones), copas
+  de clubes CONCACAF y ligas domésticas de Centro/Norteamérica.
+
+El campo `source` en `Competition`, `Team` y `Match` distingue el origen
+(`footballdata` / `apifootball`). La unicidad es por `(id_api, source)`.
+
 [1]: https://www.postman.com/api-noob/football-data-org-apis/documentation/yjgfm4j/football-data-org-v4?utm_source=chatgpt.com "Football-data.org v4 | Documentation | Postman API Network"
 [2]: https://www.football-data.org/documentation/api?utm_source=chatgpt.com "API Reference"
 [3]: https://docs.football-data.org/general/v4/competition.html?utm_source=chatgpt.com "Competition - football-data API documentation"

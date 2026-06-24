@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Pronóstico · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>
+    {{ forecast.match.home_team.name }}
+    <span class="text-muted">vs</span>
+    {{ forecast.match.away_team.name }}
+</h1>
+<p class="text-muted">
+    <a href="{% url 'matches:detail' forecast.match.pk %}">Ver partido</a>
+    ·
+    <a href="{% url 'competitions:detail' forecast.match.competition.code %}">{{ forecast.match.competition.name }}</a>
+    · {{ forecast.match.utc_date|date:"d/m/Y H:i" }}
+    · Calculado el {{ forecast.calculated_at|date:"d/m/Y H:i" }}
+    {% if forecast.is_fallback %}· <span class="badge badge-warning small">Fallback</span>{% else %}· <span class="badge small">Completo</span>{% endif %}
+</p>
+
+<section class="mb-2">
+    <h2>Probabilidades 1X2</h2>
+    <div class="prob-row">
+        <span class="prob-label">Local (1)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-home" style="width: {% widthratio p_home 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_home 1 100 %}%</span>
+    </div>
+    <div class="prob-row">
+        <span class="prob-label">Empate (X)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-draw" style="width: {% widthratio p_draw 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_draw 1 100 %}%</span>
+    </div>
+    <div class="prob-row">
+        <span class="prob-label">Visitante (2)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-away" style="width: {% widthratio p_away 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_away 1 100 %}%</span>
+    </div>
+    <p class="text-muted small mt-1">
+        Resultado más probable: <strong>{{ forecast.match.home_team.name }} {{ top_i }} - {{ top_j }} {{ forecast.match.away_team.name }}</strong>
+        ({% widthratio top_prob 1 100 %}%)
+    </p>
+</section>
+
+<section class="mt-2">
+    <h2>Value Bet</h2>
+    <p class="text-muted small">
+        Ingresa las cuotas 1X2 de la casa de apuestas para compararlas con las
+        probabilidades del modelo. Las cuotas no se guardan; el análisis es
+        solo para este partido.
+    </p>
+    <form method="post">
+        {% csrf_token %}
+        <div class="grid">
+            <label>{{ value_form.odd_home.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_home"
+                       value="{{ value_form.odd_home.value|default_if_none:'' }}"
+                       placeholder="ej. 2.10">
+            </label>
+            <label>{{ value_form.odd_draw.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_draw"
+                       value="{{ value_form.odd_draw.value|default_if_none:'' }}"
+                       placeholder="ej. 3.30">
+            </label>
+            <label>{{ value_form.odd_away.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_away"
+                       value="{{ value_form.odd_away.value|default_if_none:'' }}"
+                       placeholder="ej. 3.40">
+            </label>
+        </div>
+        {% if value_form.non_field_errors %}
+        <p class="text-muted small">{{ value_form.non_field_errors }}</p>
+        {% endif %}
+        <button type="submit">Analizar</button>
+    </form>
+
+    {% if value_analysis %}
+    <table class="compact mt-1">
+        <thead>
+            <tr>
+                <th>Resultado</th>
+                <th>Cuota</th>
+                <th>Prob. modelo</th>
+                <th>Prob. implícita</th>
+                <th>Cuota justa</th>
+                <th>Edge</th>
+                <th>EV</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in value_analysis.rows %}
+            {% if row.odd %}
+            <tr>
+                <td>
+                    {% if row.label == 'home' %}Local (1)
+                    {% elif row.label == 'draw' %}Empate (X)
+                    {% else %}Visitante (2){% endif %}
+                </td>
+                <td class="monospace">{{ row.odd|floatformat:2 }}</td>
+                <td class="monospace">{% widthratio row.prob 1 100 %}%</td>
+                <td class="monospace">{% widthratio row.implied_prob 1 100 %}%</td>
+                <td class="monospace">{{ row.fair_odds|floatformat:2 }}</td>
+                <td class="monospace
+                    {% if row.edge > 0 %}value-positive
+                    {% elif row.edge < 0 %}value-negative{% endif %}">
+                    {% widthratio row.edge 1 100 %}%
+                </td>
+                <td class="monospace
+                    {% if row.ev > 0 %}value-positive
+                    {% elif row.ev < 0 %}value-negative{% endif %}">
+                    {% widthratio row.ev 1 100 %}%
+                </td>
+                <td>
+                    {% if row.is_value %}<span class="badge badge-success small">VALUE</span>{% endif %}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="text-muted small mt-1">
+        Margen de la casa (vig):
+        {% if value_analysis.vig is not None %}
+            <strong>{% widthratio value_analysis.vig 1 100 %}%</strong>
+        {% else %}
+            —
+        {% endif %}
+        · EV positivo = apuesta de valor (prob. del modelo mayor que la implícita en la cuota).
+    </p>
+    {% if value_analysis.recommendation %}
+    <p>
+        Recomendación:
+        <strong>
+            {% if value_analysis.recommendation.label == 'home' %}Local (1)
+            {% elif value_analysis.recommendation.label == 'draw' %}Empate (X)
+            {% else %}Visitante (2){% endif %}
+        </strong>
+        <span class="badge badge-success small">VALUE</span>
+        · EV {% widthratio value_analysis.recommendation.ev 1 100 %}%
+    </p>
+    {% else %}
+    <p class="text-muted small">Ningún resultado ofrece value bet con estas cuotas.</p>
+    {% endif %}
+    {% endif %}
+</section>
+
+<div class="grid mt-1">
+    <section>
+        <h2>Goles esperados (xG)</h2>
+        <table class="compact">
+            <thead><tr><th>Equipo</th><th class="text-center">λ</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>{{ forecast.match.home_team.name }}</td>
+                    <td class="text-center monospace">{{ forecast.xg_home|floatformat:3 }}</td>
+                </tr>
+                <tr>
+                    <td>{{ forecast.match.away_team.name }}</td>
+                    <td class="text-center monospace">{{ forecast.xg_away|floatformat:3 }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <aside>
+        <h2>Forma reciente</h2>
+        {% if forecast.form_home.attack_rating is not None and forecast.is_fallback == False %}
+        <p>
+            <strong>{{ forecast.match.home_team.name }}:</strong>
+            ataque {{ forecast.form_home.attack_rating|floatformat:2 }}
+            · defensa {{ forecast.form_home.defense_rating|floatformat:2 }}
+        </p>
+        {% else %}
+        <p class="text-muted small">{{ forecast.match.home_team.name }}: historial {{ forecast.form_home.history_count|default:"0" }} partidos.</p>
+        {% endif %}
+        {% if forecast.form_away.attack_rating is not None and forecast.is_fallback == False %}
+        <p>
+            <strong>{{ forecast.match.away_team.name }}:</strong>
+            ataque {{ forecast.form_away.attack_rating|floatformat:2 }}
+            · defensa {{ forecast.form_away.defense_rating|floatformat:2 }}
+        </p>
+        {% else %}
+        <p class="text-muted small">{{ forecast.match.away_team.name }}: historial {{ forecast.form_away.history_count|default:"0" }} partidos.</p>
+        {% endif %}
+        {% if forecast.is_fallback %}
+        <p class="badge badge-warning small">Pronóstico basado solo en Elo (historial insuficiente).</p>
+        {% endif %}
+    </aside>
+</div>
+
+<section class="mt-2">
+    <h2>Matriz de resultados (Poisson)</h2>
+    <div class="overflow-auto">
+    <table class="poisson-matrix">
+        <thead>
+            <tr>
+                <th></th>
+                {% for j in goal_range %}<th>{{ j }}</th>{% endfor %}
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in matrix_rows %}
+            <tr>
+                <th>{{ row.i }}</th>
+                {% for cell in row.cells %}
+                <td class="poisson-cell
+                    {% if cell.kind == 'top' %}po-top
+                    {% elif cell.kind == 'home' %}po-home
+                    {% elif cell.kind == 'draw' %}po-draw
+                    {% else %}po-away{% endif %}">
+                    {{ cell.p|floatformat:3 }}
+                </td>
+                {% endfor %}
+                <td class="monospace small text-muted">{{ row.row_sum|floatformat:3 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="text-muted small mt-1">
+        Filas: goles del local · Columnas: goles del visitante.
+        Azul = victoria local, gris = empate, rojo = victoria visitante.
+        La celda más probable aparece resaltada.
+    </p>
+</section>
+{% endblock %}

@@ -14,6 +14,13 @@ class Forecast(models.Model):
     prob_away_win = models.FloatField()
     form_home = models.JSONField(default=dict, blank=True)
     form_away = models.JSONField(default=dict, blank=True)
+    is_fallback = models.BooleanField(
+        default=False,
+        help_text=(
+            "True si se calculó solo con Elo (sin historial suficiente de "
+            "forma reciente)."
+        ),
+    )
     calculated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

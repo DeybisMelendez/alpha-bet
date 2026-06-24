@@ -7,14 +7,18 @@ from elo.models import LeagueStrength
 from matches.models import Match
 from teams.models import Competition, Team, TeamCompetition
 
+SOURCE = Competition.Source.FOOTBALLDATA
+
 
 def ensure_competition(comp_data, client=None, enrich=False):
     comp_id = comp_data.get("id")
     comp_code = comp_data.get("code", "")
     if comp_id is None:
-        return None
+        return None, False
 
-    competition = Competition.objects.filter(id_api=comp_id).first()
+    competition = Competition.objects.filter(
+        id_api=comp_id, source=SOURCE
+    ).first()
     if competition is not None:
         return competition, False
 
@@ -31,6 +35,7 @@ def ensure_competition(comp_data, client=None, enrich=False):
         season_str = season.get("startDate", "")[:4] or ""
         competition = Competition.objects.create(
             id_api=full_data["id"],
+            source=SOURCE,
             code=full_data.get("code", comp_code),
             name=full_data.get("name", ""),
             area_name=area.get("name", ""),
@@ -41,6 +46,7 @@ def ensure_competition(comp_data, client=None, enrich=False):
     else:
         competition = Competition.objects.create(
             id_api=comp_id,
+            source=SOURCE,
             code=comp_code,
             name=comp_data.get("name", ""),
         )
@@ -64,8 +70,16 @@ def ensure_team(team_data, competition, season_str, client=None, enrich=False):
     if team_id is None:
         return None
 
-    team = Team.objects.filter(id_api=team_id).first()
+    team = Team.objects.filter(id_api=team_id, source=SOURCE).first()
     if team is not None:
+        # Asegurar el link TeamCompetition aunque el equipo ya exista,
+        # porque puede participar en una competición/temporada nueva.
+        if season_str:
+            TeamCompetition.objects.get_or_create(
+                team=team,
+                competition=competition,
+                season=season_str,
+            )
         return team, False
 
     full_data = None
@@ -78,6 +92,7 @@ def ensure_team(team_data, competition, season_str, client=None, enrich=False):
     if full_data:
         team = Team.objects.create(
             id_api=full_data["id"],
+            source=SOURCE,
             name=full_data.get("name", ""),
             short_name=full_data.get("shortName", ""),
             tla=full_data.get("tla", ""),
@@ -89,6 +104,7 @@ def ensure_team(team_data, competition, season_str, client=None, enrich=False):
     else:
         team = Team.objects.create(
             id_api=team_id,
+            source=SOURCE,
             name=team_data.get("name", ""),
             short_name=team_data.get("shortName", ""),
             tla=team_data.get("tla", ""),
@@ -130,12 +146,13 @@ def save_match(data, competition, home, away):
 
     match, created = Match.objects.update_or_create(
         id_api=match_id,
+        source=SOURCE,
         defaults={
             "competition": competition,
             "season": season_str,
             "matchday": data.get("matchday"),
-            "stage": data.get("stage", ""),
-            "group": data.get("group", ""),
+            "stage": data.get("stage") or "",
+            "group": data.get("group") or "",
             "status": data.get("status", Match.Status.SCHEDULED),
             "utc_date": utc_date,
             "home_team": home,

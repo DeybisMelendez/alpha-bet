@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Competiciones · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Competiciones</h1>
+<p class="text-muted">{{ competitions|length }} competiciones disponibles.</p>
+
+<table class="compact">
+    <thead>
+        <tr>
+            <th>Código</th>
+            <th>Nombre</th>
+            <th>Área</th>
+            <th>Temporada</th>
+            <th class="text-center">Equipos</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for comp in competitions %}
+        <tr>
+            <td class="monospace">
+                <a href="{% url 'competitions:detail' comp.code %}">{{ comp.code }}</a>
+            </td>
+            <td>
+                <a href="{% url 'competitions:detail' comp.code %}">{{ comp.name }}</a>
+            </td>
+            <td class="text-muted small">{{ comp.area_name }}</td>
+            <td class="small">{{ comp.current_season|default:"-" }}</td>
+            <td class="text-center monospace">{{ comp.team_links.count }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-muted">Sin competiciones sincronizadas.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

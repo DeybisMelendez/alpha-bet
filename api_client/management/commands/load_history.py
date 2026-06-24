@@ -1,28 +1,56 @@
 import time
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from api_client.client import FootballDataClient
 from api_client.sync import ensure_competition, ensure_team, save_match
 from elo.engine import process_pending_matches, recompute_league_strength
 from forecasts.engine import generate_for_scheduled_matches
+from matches.models import Match
+
+
+def parse_seasons(seasons_arg, from_season, current_year):
+    """Devuelve la lista de temporadas (strings) a cargar.
+
+    --seasons puede ser una lista ('2022,2024,2026') o un rango
+    ('2020:2026'). Si no se pasa --seasons, se usa range(from_season,
+    current_year + 1).
+    """
+    if seasons_arg:
+        if ":" in seasons_arg:
+            start, end = seasons_arg.split(":", 1)
+            return [str(y) for y in range(int(start), int(end) + 1)]
+        return [s.strip() for s in seasons_arg.split(",") if s.strip()]
+    return [str(y) for y in range(from_season, current_year + 1)]
 
 
 class Command(BaseCommand):
     help = (
-        "Carga el historial de partidos de todas las competiciones "
-        "disponibles en la API gratuita para el año indicado. "
-        "Procesa Elo en orden cronológico y recalibra la fuerza de ligas."
+        "Carga todo el historial de partidos disponible en la API para las "
+        "competiciones indicadas. Procesa Elo en orden cronológico, "
+        "recalibra la fuerza de ligas y genera pronósticos en ventana."
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--year",
+            "--seasons",
+            help=(
+                "Temporadas explícitas: lista '2022,2024,2026' o rango "
+                "'2020:2026'. Si se omite, usa --from-season hasta el año "
+                "actual."
+            ),
+        )
+        parser.add_argument(
+            "--from-season",
             type=int,
-            default=2026,
-            help="Año objetivo (default 2026). Se cargan las temporadas "
-                 "year-1 y year para cubrir partidos de ese año.",
+            default=2015,
+            help=(
+                "Año inicial cuando no se pasa --seasons (default 2015). "
+                "Carga desde esta temporada hasta el año actual."
+            ),
         )
         parser.add_argument(
             "--competitions",
@@ -34,6 +62,14 @@ class Command(BaseCommand):
             default=7.0,
             help="Segundos entre peticiones para respetar el rate limit "
                  "(default 7, free tier = 10 req/min).",
+        )
+        parser.add_argument(
+            "--no-early-stop",
+            action="store_true",
+            help=(
+                "Desactiva la detención temprana: prueba todas las "
+                "temporadas aunque devuelvan vacío."
+            ),
         )
         parser.add_argument(
             "--no-elo",
@@ -53,21 +89,25 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         client = FootballDataClient()
-        year = options["year"]
         rate_limit = options["rate_limit_seconds"]
+        early_stop = not options["no_early_stop"]
 
         if options.get("competitions"):
             codes = [c.strip() for c in options["competitions"].split(",")]
         else:
             codes = settings.FOOTBALL_COMPETITIONS_ALL
 
-        seasons = [str(year - 1), str(year)]
+        current_year = timezone.now().year
+        seasons = parse_seasons(
+            options.get("seasons"), options["from_season"], current_year
+        )
 
         self.stdout.write(
-            f"Cargando historial para año {year}...\n"
+            f"Cargando historial...\n"
             f"  Competiciones: {', '.join(codes)}\n"
             f"  Temporadas: {', '.join(seasons)}\n"
-            f"  Pausa entre peticiones: {rate_limit}s"
+            f"  Pausa entre peticiones: {rate_limit}s\n"
+            f"  Detención temprana: {'sí' if early_stop else 'no'}"
         )
 
         stats = {
@@ -81,53 +121,72 @@ class Command(BaseCommand):
         }
 
         request_count = 0
+        # Horizonte para omitir almacenar partidos programados lejanos.
+        # Los datos de esos partidos (fechas, forma reciente, Elo) cambian
+        # con el tiempo, por lo que se sincronizarán posteriormente en la
+        # ventana semanal.
+        forecast_horizon = timezone.now() + timedelta(
+            days=settings.FORECAST_SCHEDULE_DAYS
+        )
+
+        last_request_index = len(codes) * len(seasons) - 1
+        current_index = 0
+
         for code in codes:
+            empty_streak = 0
             for season in seasons:
                 self.stdout.write(
                     f"\n  [{code}] temporada {season}..."
                 )
-                try:
-                    matches_data = client.get_competition_matches(
-                        code, season=season
-                    )
-                    request_count += 1
-                except Exception as exc:
-                    stats["api_errors"] += 1
-                    self.stderr.write(self.style.ERROR(
-                        f"    Error API: {exc}"
-                    ))
-                    if "429" in str(exc):
-                        self.stdout.write(
-                            "    Rate limit alcanzado, esperando 60s..."
-                        )
-                        time.sleep(60)
-                        try:
-                            matches_data = client.get_competition_matches(
-                                code, season=season
-                            )
-                            request_count += 1
-                        except Exception as exc2:
-                            stats["api_errors"] += 1
-                            self.stderr.write(self.style.ERROR(
-                                f"    Error API tras reintento: {exc2}"
-                            ))
-                            continue
-                    else:
-                        continue
 
-                if not matches_data:
-                    self.stdout.write("    Sin partidos.")
-                    if code != codes[-1] or season != seasons[-1]:
+                matches_data, is_available = self._fetch_matches(
+                    client, code, season, stats
+                )
+                request_count += 1
+
+                if matches_data is None:
+                    # Error transitorio (ya registrado). No rompe el streak.
+                    current_index += 1
+                    if current_index < last_request_index:
                         time.sleep(rate_limit)
                     continue
 
+                if not is_available:
+                    # 403/404: temporada no disponible en el plan.
+                    empty_streak += 1
+                    if early_stop and empty_streak >= 2:
+                        self.stdout.write(
+                            f"    2 temporadas no disponibles consecutivas. "
+                            f"Omitiendo temporadas anteriores de {code}."
+                        )
+                        break
+                    current_index += 1
+                    if current_index < last_request_index:
+                        time.sleep(rate_limit)
+                    continue
+
+                if not matches_data:
+                    self.stdout.write("    Sin partidos.")
+                    empty_streak += 1
+                    if early_stop and empty_streak >= 2:
+                        self.stdout.write(
+                            f"    2 temporadas vacías consecutivas. "
+                            f"Omitiendo temporadas anteriores de {code}."
+                        )
+                        break
+                    current_index += 1
+                    if current_index < last_request_index:
+                        time.sleep(rate_limit)
+                    continue
+
+                empty_streak = 0
                 self.stdout.write(
                     f"    {len(matches_data)} partidos obtenidos."
                 )
 
                 for data in matches_data:
                     try:
-                        self._save_match(data, stats)
+                        self._save_match(data, stats, forecast_horizon)
                     except Exception as exc:
                         stats["save_errors"] += 1
                         self.stderr.write(self.style.ERROR(
@@ -136,8 +195,8 @@ class Command(BaseCommand):
                         ))
 
                 stats["competitions"] += 1
-
-                if code != codes[-1] or season != seasons[-1]:
+                current_index += 1
+                if current_index < last_request_index:
                     time.sleep(rate_limit)
 
         self._print_load_summary(stats)
@@ -164,17 +223,60 @@ class Command(BaseCommand):
             self.stdout.write(
                 "\nGenerando pronósticos para partidos programados..."
             )
-            generated, skipped = generate_for_scheduled_matches()
+            generated, fallback = generate_for_scheduled_matches()
             self.stdout.write(self.style.SUCCESS(
-                f"  Pronósticos: {generated} generados, "
-                f"{skipped} omitidos (historial insuficiente)."
+                f"  Pronósticos: {generated} generados "
+                f"({fallback} fallback solo Elo)."
             ))
 
         self.stdout.write(self.style.SUCCESS(
             f"\nTotal peticiones API: {request_count}"
         ))
 
-    def _save_match(self, data, stats):
+    def _fetch_matches(self, client, code, season, stats):
+        """Obtiene partidos de una competición/temporada con reintento 429.
+
+        Devuelve (matches_list, is_available). is_available=False cuando la
+        temporada no está disponible (403/404), lo que permite que la
+        detención temprana funcione. En caso de error transitorio devuelve
+        (None, True) para no romper el streak.
+        """
+        try:
+            return client.get_competition_matches(code, season=season), True
+        except Exception as exc:
+            is_not_available = (
+                "403" in str(exc) or "404" in str(exc)
+            )
+            stats["api_errors"] += 1
+            self.stderr.write(self.style.ERROR(
+                f"    Error API: {exc}"
+            ))
+            if "429" in str(exc):
+                self.stdout.write(
+                    "    Rate limit alcanzado, esperando 60s..."
+                )
+                time.sleep(60)
+                try:
+                    return (
+                        client.get_competition_matches(
+                            code, season=season
+                        ),
+                        True,
+                    )
+                except Exception as exc2:
+                    stats["api_errors"] += 1
+                    self.stderr.write(self.style.ERROR(
+                        f"    Error API tras reintento: {exc2}"
+                    ))
+                    is_not_available = (
+                        "403" in str(exc2) or "404" in str(exc2)
+                    )
+                    return None, not is_not_available
+            if is_not_available:
+                return [], False
+            return None, True
+
+    def _save_match(self, data, stats, forecast_horizon):
         comp_data = data.get("competition", {}) or {}
         if comp_data.get("id") is None:
             return
@@ -189,6 +291,20 @@ class Command(BaseCommand):
 
         season_data = data.get("season", {}) or {}
         season_str = (season_data.get("startDate", "") or "")[:4] or ""
+
+        # Omitir almacenar partidos programados fuera de la ventana semanal.
+        # Sus fechas pueden cambiar o posponerse, y se sincronizarán después.
+        utc_date_raw = data.get("utcDate")
+        if utc_date_raw:
+            from django.utils.dateparse import parse_datetime
+            utc_date = parse_datetime(utc_date_raw)
+            status = data.get("status", Match.Status.SCHEDULED)
+            is_scheduled = status in [
+                Match.Status.SCHEDULED, Match.Status.TIMED
+            ]
+            if utc_date is not None and is_scheduled \
+                    and utc_date > forecast_horizon:
+                return
 
         home, home_created = ensure_team(
             home_data, competition, season_str

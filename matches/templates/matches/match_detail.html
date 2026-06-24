@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}{{ match.home_team.name }} vs {{ match.away_team.name }} · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>
+    {{ match.home_team.name }}
+    <span class="text-muted">vs</span>
+    {{ match.away_team.name }}
+</h1>
+<p class="text-muted">
+    <a href="{% url 'competitions:detail' match.competition.code %}">{{ match.competition.name }}</a>
+    {% if match.season %}· {{ match.season }}{% endif %}
+    {% if match.matchday %}· Jornada {{ match.matchday }}{% endif %}
+    {% if match.stage %}· {{ match.stage }}{% endif %}
+</p>
+<p class="text-muted small">
+    {{ match.utc_date|date:"l d F Y H:i" }} · <span class="badge">{{ match.get_status_display }}</span>
+</p>
+
+<section class="mb-2">
+    <h2>Resultado</h2>
+    {% if match.has_result %}
+    <h2 class="monospace">{{ match.home_goals }} - {{ match.away_goals }}</h2>
+    {% if match.home_goals > match.away_goals %}
+        <p>{% if match.home_team.tla %}{{ match.home_team.tla }}{% else %}{{ match.home_team.name }}{% endif %} gana</p>
+    {% elif match.home_goals < match.away_goals %}
+        <p>{% if match.away_team.tla %}{{ match.away_team.tla }}{% else %}{{ match.away_team.name }}{% endif %} gana</p>
+    {% else %}
+        <p>Empate</p>
+    {% endif %}
+    {% else %}
+    <p class="text-muted">Partido no finalizado.</p>
+    {% endif %}
+</section>
+
+<div class="grid mt-1">
+    <section>
+        <h2>Equipos</h2>
+        <table class="compact">
+            <tbody>
+                <tr>
+                    <th>Local</th>
+                    <td><a href="{% url 'teams:detail' match.home_team.pk %}">{{ match.home_team.name }}</a></td>
+                </tr>
+                <tr>
+                    <th>Visitante</th>
+                    <td><a href="{% url 'teams:detail' match.away_team.pk %}">{{ match.away_team.name }}</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <aside>
+        <h2>Elo</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>Equipo</th><th class="text-center">Antes</th><th class="text-center">Después</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ match.home_team.name }}</td>
+                    <td class="text-center monospace">{{ match.home_elo_before|floatformat:0|default:"-" }}</td>
+                    <td class="text-center monospace">{{ match.home_elo_after|floatformat:0|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <td>{{ match.away_team.name }}</td>
+                    <td class="text-center monospace">{{ match.away_elo_before|floatformat:0|default:"-" }}</td>
+                    <td class="text-center monospace">{{ match.away_elo_after|floatformat:0|default:"-" }}</td>
+                </tr>
+            </tbody>
+        </table>
+        {% if match.is_finished and not match.elo_processed %}
+        <p class="badge badge-warning small mt-1">Elo pendiente de procesar</p>
+        {% endif %}
+    </aside>
+</div>
+
+{% if elo_logs %}
+<section class="mt-2">
+    <h2>Cambios Elo</h2>
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Equipo</th>
+                <th class="text-center">Antes</th>
+                <th class="text-center">Δ</th>
+                <th class="text-center">Después</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in elo_logs %}
+            <tr>
+                <td>
+                    <a href="{% url 'teams:detail' log.team.pk %}">{{ log.team.name }}</a>
+                </td>
+                <td class="text-center monospace">{{ log.elo_before|floatformat:0 }}</td>
+                <td class="text-center monospace">
+                    {% if log.delta > 0 %}+{% endif %}{{ log.delta|floatformat:1 }}
+                </td>
+                <td class="text-center monospace">{{ log.elo_after|floatformat:0 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
+
+<section class="mt-2">
+    <h2>Pronóstico</h2>
+    {% if match.forecast %}
+    <p>
+        Ver detalle completo en
+        <a href="{% url 'forecasts:detail' match.forecast.pk %}">pronóstico</a>.
+    </p>
+    <table class="compact">
+        <thead><tr><th class="text-center">1 (Local)</th><th class="text-center">X (Empate)</th><th class="text-center">2 (Visitante)</th></tr></thead>
+        <tbody>
+            <tr>
+                <td class="text-center monospace">{% widthratio match.forecast.prob_home_win 1 100 %}%</td>
+                <td class="text-center monospace">{% widthratio match.forecast.prob_draw 1 100 %}%</td>
+                <td class="text-center monospace">{% widthratio match.forecast.prob_away_win 1 100 %}%</td>
+            </tr>
+        </tbody>
+    </table>
+    {% if match.forecast.is_fallback %}
+    <p class="badge badge-warning small mt-1">Pronóstico fallback (historial insuficiente)</p>
+    {% endif %}
+    {% else %}
+    <p class="text-muted">Sin pronóstico para este partido.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from api_client.client import FootballDataClient
@@ -12,8 +13,9 @@ from teams.models import Competition
 
 class Command(BaseCommand):
     help = (
-        "Sincroniza partidos desde football-data.org. "
-        "Procesa Elo para finalizados y genera pronósticos para programados."
+        "Sincroniza partidos desde football-data.org dentro de una ventana "
+        "semanal. Procesa Elo para finalizados y genera pronósticos para "
+        "programados."
     )
 
     def add_arguments(self, parser):
@@ -22,10 +24,16 @@ class Command(BaseCommand):
             help="Código de competición (PL, PD, ...). Si se omite, usa /matches por fecha.",
         )
         parser.add_argument(
-            "--days",
+            "--days-ahead",
             type=int,
-            default=30,
-            help="Ventana de días hacia adelante y atrás (default 30).",
+            default=settings.FORECAST_SCHEDULE_DAYS,
+            help="Ventana de días hacia adelante (default: pronóstico semanal).",
+        )
+        parser.add_argument(
+            "--days-back",
+            type=int,
+            default=settings.SYNC_BACK_DAYS,
+            help="Ventana de días hacia atrás para capturar resultados recientes.",
         )
         parser.add_argument(
             "--matchday",
@@ -46,8 +54,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         client = FootballDataClient()
         code = options.get("competition")
-        days = options.get("days", 30)
+        days_ahead = options.get("days_ahead", settings.FORECAST_SCHEDULE_DAYS)
+        days_back = options.get("days_back", settings.SYNC_BACK_DAYS)
         matchday = options.get("matchday")
+
+        today = date.today()
+        date_from = (today - timedelta(days=days_back)).isoformat()
+        date_to = (today + timedelta(days=days_ahead)).isoformat()
 
         if code:
             try:
@@ -61,25 +74,25 @@ class Command(BaseCommand):
 
             try:
                 if matchday:
+                    # Jornada específica: no filtra por fecha.
                     matches_data = client.get_competition_matches(
                         code, matchday=matchday, season=season
                     )
                 else:
                     matches_data = client.get_competition_matches(
-                        code, season=season
+                        code, season=season,
+                        date_from=date_from, date_to=date_to,
                     )
             except Exception as exc:
                 raise CommandError(f"Error obteniendo partidos: {exc}")
         else:
-            today = date.today()
-            date_from = (today - timedelta(days=days)).isoformat()
-            date_to = (today + timedelta(days=days)).isoformat()
             self.stdout.write(
                 f"Sincronizando partidos entre {date_from} y {date_to}..."
             )
             try:
                 matches_data = client.get_matches(
-                    date_from=date_from, date_to=date_to
+                    date_from=date_from, date_to=date_to,
+                    competitions=settings.FOOTBALL_COMPETITIONS_ALL,
                 )
             except Exception as exc:
                 raise CommandError(f"Error obteniendo partidos: {exc}")
@@ -88,7 +101,7 @@ class Command(BaseCommand):
         updated = 0
         elo_processed = 0
         forecasts_generated = 0
-        forecasts_skipped = 0
+        forecasts_fallback = 0
 
         for data in matches_data:
             try:
@@ -143,8 +156,8 @@ class Command(BaseCommand):
                         forecast = generate_forecast(match)
                         if forecast is not None:
                             forecasts_generated += 1
-                        else:
-                            forecasts_skipped += 1
+                            if forecast.is_fallback:
+                                forecasts_fallback += 1
                     except Exception as exc:
                         self.stderr.write(
                             self.style.ERROR(
@@ -162,6 +175,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"Partidos: {created} nuevos, {updated} actualizados | "
             f"Elo procesado: {elo_processed} | "
-            f"Pronósticos: {forecasts_generated} generados, "
-            f"{forecasts_skipped} omitidos por falta de historial"
+            f"Pronósticos: {forecasts_generated} generados "
+            f"({forecasts_fallback} fallback solo Elo)"
         ))

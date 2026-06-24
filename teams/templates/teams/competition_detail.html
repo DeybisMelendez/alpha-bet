@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}{{ competition.name }} · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>{{ competition.name }}</h1>
+<p class="text-muted">
+    {{ competition.area_name }} · Temporada {{ season|default:"-" }}
+</p>
+
+<section class="mt-1">
+    <h2>Ranking Elo · {{ season|default:"Temporada actual" }}</h2>
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Equipo</th>
+                <th class="text-center">Elo</th>
+                <th class="text-center">Partidos</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for team in teams %}
+            <tr>
+                <td class="rank-num monospace">{{ forloop.counter }}</td>
+                <td>
+                    <a href="{% url 'teams:detail' team.pk %}">{{ team.name }}</a>
+                    {% if team.tla %}<span class="team-tla">{{ team.tla }}</span>{% endif %}
+                </td>
+                <td class="text-center monospace">{{ team.elo|floatformat:0 }}</td>
+                <td class="text-center monospace">{{ team.matches_played }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-muted">Sin equipos para esta temporada.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<div class="grid mt-2">
+    <section>
+        <h2>Próximos partidos</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>Fecha</th><th>Partido</th></tr>
+            </thead>
+            <tbody>
+                {% for match in upcoming %}
+                <tr>
+                    <td class="nowrap small">{{ match.utc_date|date:"d/m H:i" }}</td>
+                    <td>
+                        <a href="{% url 'matches:detail' match.pk %}">
+                            {{ match.home_team.name }} vs {{ match.away_team.name }}
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="2" class="text-muted">Sin partidos próximos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <aside>
+        <h2>Resultados recientes</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>Fecha</th><th>Partido</th><th class="text-center">Resultado</th></tr>
+            </thead>
+            <tbody>
+                {% for match in recent %}
+                <tr>
+                    <td class="nowrap small">{{ match.utc_date|date:"d/m" }}</td>
+                    <td>
+                        <a href="{% url 'matches:detail' match.pk %}">
+                            {{ match.home_team.name }} vs {{ match.away_team.name }}
+                        </a>
+                    </td>
+                    <td class="text-center monospace">
+                        {{ match.home_goals }} - {{ match.away_goals }}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="text-muted">Sin resultados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </aside>
+</div>
+{% endblock %}

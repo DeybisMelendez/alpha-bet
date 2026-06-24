@@ -2,7 +2,14 @@ from django.db import models
 
 
 class Competition(models.Model):
-    id_api = models.PositiveIntegerField(unique=True, db_index=True)
+    class Source(models.TextChoices):
+        FOOTBALLDATA = "footballdata", "football-data.org"
+        APIFOOTBALL = "apifootball", "API-Football"
+
+    id_api = models.PositiveIntegerField(db_index=True)
+    source = models.CharField(
+        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
+    )
     code = models.CharField(max_length=10, unique=True)
     name = models.CharField(max_length=200)
     area_name = models.CharField(max_length=100, blank=True, default="")
@@ -11,6 +18,7 @@ class Competition(models.Model):
     current_season = models.CharField(max_length=20, blank=True, default="")
 
     class Meta:
+        unique_together = ("id_api", "source")
         ordering = ["name"]
         verbose_name = "Competición"
         verbose_name_plural = "Competiciones"
@@ -20,7 +28,14 @@ class Competition(models.Model):
 
 
 class Team(models.Model):
-    id_api = models.PositiveIntegerField(unique=True, db_index=True)
+    class Source(models.TextChoices):
+        FOOTBALLDATA = "footballdata", "football-data.org"
+        APIFOOTBALL = "apifootball", "API-Football"
+
+    id_api = models.PositiveIntegerField(db_index=True)
+    source = models.CharField(
+        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
+    )
     name = models.CharField(max_length=200)
     short_name = models.CharField(max_length=100, blank=True, default="")
     tla = models.CharField(max_length=10, blank=True, default="")
@@ -32,6 +47,7 @@ class Team(models.Model):
     matches_played = models.PositiveIntegerField(default=0)
 
     class Meta:
+        unique_together = ("id_api", "source")
         ordering = ["name"]
         verbose_name = "Equipo"
         verbose_name_plural = "Equipos"

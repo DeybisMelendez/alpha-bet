@@ -15,7 +15,14 @@ class Match(models.Model):
         CANCELLED = "CANCELLED", "Cancelado"
         AWARDED = "AWARDED", "Adjudicado"
 
-    id_api = models.PositiveIntegerField(unique=True, db_index=True)
+    class Source(models.TextChoices):
+        FOOTBALLDATA = "footballdata", "football-data.org"
+        APIFOOTBALL = "apifootball", "API-Football"
+
+    id_api = models.PositiveIntegerField(db_index=True)
+    source = models.CharField(
+        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
+    )
     competition = models.ForeignKey(
         Competition, on_delete=models.CASCADE, related_name="matches"
     )
@@ -45,6 +52,7 @@ class Match(models.Model):
     away_elo_after = models.FloatField(null=True, blank=True)
 
     class Meta:
+        unique_together = ("id_api", "source")
         ordering = ["-utc_date"]
         indexes = [
             models.Index(fields=["status", "utc_date"]),

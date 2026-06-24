@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Pronósticos · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Pronósticos</h1>
+<p class="text-muted">Próximos partidos con pronóstico calculado.</p>
+
+<p>
+    <a href="{% url 'forecasts:list' %}" class="badge small">Todos</a>
+    <a href="{% url 'forecasts:list' %}?fallback=1" class="badge badge-warning small">Solo fallback</a>
+</p>
+
+<table class="compact">
+    <thead>
+        <tr>
+            <th>Fecha</th>
+            <th>Comp.</th>
+            <th>Partido</th>
+            <th class="text-center">1</th>
+            <th class="text-center">X</th>
+            <th class="text-center">2</th>
+            <th>Tipo</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for f in forecasts %}
+        <tr>
+            <td class="nowrap small">{{ f.match.utc_date|date:"d/m H:i" }}</td>
+            <td>
+                <a href="{% url 'competitions:detail' f.match.competition.code %}">{{ f.match.competition.code }}</a>
+            </td>
+            <td>
+                <a href="{% url 'forecasts:detail' f.pk %}">
+                    {{ f.match.home_team.name }} vs {{ f.match.away_team.name }}
+                </a>
+            </td>
+            <td class="text-center monospace">{% widthratio f.prob_home_win 1 100 %}%</td>
+            <td class="text-center monospace">{% widthratio f.prob_draw 1 100 %}%</td>
+            <td class="text-center monospace">{% widthratio f.prob_away_win 1 100 %}%</td>
+            <td>
+                {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-muted">Sin pronósticos próximos.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

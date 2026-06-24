@@ -356,6 +356,14 @@ Por esta razón, suele ser una excelente base para generar posteriormente probab
 
 ---
 
+# Partidos decididos por penales
+
+Cuando un partido se decide en tanda de penales (status `PEN` en API-Football), el resultado para Elo es **empate** (S=0.5) independientemente del marcador de penales.
+
+Los goles usados son los de `score.fulltime` (90 minutos + extra time). Los penales no reflejan fuerza relativa, solo desempate, por lo que no deben influir en el rating.
+
+---
+
 # Calculo elo inicial
 
 - Calcular el Elo promedio de cada liga (En caso de no tener el valor inicial sería 1500)

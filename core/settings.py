@@ -62,7 +62,7 @@ ROOT_URLCONF = "core.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -131,18 +131,89 @@ MEDIA_URL = "/media/"
 
 
 # Football-Data.org API
+# Fuente exclusiva para competiciones de clubes (ligas europeas top, copas
+# europeas y competiciones sudamericanas). Las selecciones nacionales se
+# obtienen desde api-football (ver mas abajo) para aprovechar su mayor
+# cobertura de confederaciones.
 FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", "")
 FOOTBALL_DATA_API_BASE_URL = "https://api.football-data.org/v4"
 API_CACHE_TTL_MINUTES = 60
 
-# Popular competition codes for football-data.org
-FOOTBALL_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "CL", "WC"]
+# Popular competition codes for football-data.org (solo clubes)
+FOOTBALL_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "CL"]
 
-# All competitions available in the free tier
+# All competitions available in the free tier (solo clubes; WC/EC migraron
+# a api-football como parte de las selecciones nacionales).
 FOOTBALL_COMPETITIONS_ALL = [
-    "BSA", "ELC", "PL", "CL", "EC", "FL1", "BL1",
-    "SA", "DED", "PPL", "CLI", "PD", "WC",
+    "BSA", "ELC", "PL", "CL", "FL1", "BL1",
+    "SA", "DED", "PPL", "CLI", "PD",
 ]
+
+
+# API-Football (api-sports.io v3)
+# Fuente para selecciones nacionales (todas las confederaciones), copas de
+# clubes CONCACAF y ligas domesticas de Centro y Norteamerica.
+#
+# Restricciones del plan Free (verificadas empiricamente):
+#   * Solo se pueden consultar temporadas 2022, 2023 y 2024 via league+season.
+#     La temporada actual (2025/2026) esta bloqueada para todas las ligas.
+#   * El endpoint por fecha (date=) solo permite hoy +/- 1 dia (ventana
+#     rolling de 3 dias). Es la unica forma de acceder a la temporada actual.
+#   * El parametro last=N esta prohibido.
+#   * Paises multi-palabra se filtran con guion (Costa-Rica, El-Salvador).
+#   * Limite: 100 req/dia + ~10 req/min.
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
+API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
+API_FOOTBALL_RATE_LIMIT_SECONDS = 6
+API_FOOTBALL_DAILY_BUDGET = 80
+API_FOOTBALL_HISTORY_SEASONS = [2022, 2023, 2024]
+
+# Competiciones trackeadas: (league_id, code, nombre, elo_inicial).
+# code se almacena como string (el league_id) y no colisiona con los codigos
+# alfa de football-data. elo_inicial se usa al crear LeagueStrength y al
+# asignar Elo a equipos nuevos (ver docs/elo.md).
+API_FOOTBALL_LEAGUES = [
+    # --- Selecciones (todas las confederaciones) ---
+    (1, "1", "World Cup", 1580),
+    (4, "4", "Euro Championship", 1580),
+    (31, "31", "World Cup Qualification CONCACAF", 1550),
+    (32, "32", "World Cup Qualification Europe", 1550),
+    (29, "29", "World Cup Qualification Africa", 1500),
+    (30, "30", "World Cup Qualification Asia", 1500),
+    (33, "33", "World Cup Qualification Oceania", 1450),
+    (34, "34", "World Cup Qualification South America", 1560),
+    (9, "9", "Copa America", 1560),
+    (7, "7", "Asian Cup", 1500),
+    (6, "6", "Africa Cup of Nations", 1500),
+    (22, "22", "CONCACAF Gold Cup", 1500),
+    (536, "536", "CONCACAF Nations League", 1500),
+    (805, "805", "Copa Centroamericana", 1450),
+    (10, "10", "Friendlies", 1500),
+    # --- Copas de clubes CONCACAF ---
+    (16, "16", "CONCACAF Champions Cup", 1450),
+    (767, "767", "CONCACAF League", 1400),
+    (1028, "1028", "CONCACAF Central American Cup", 1400),
+    # --- Ligas domesticas Centroamerica ---
+    (396, "396", "Nicaragua Primera Division", 1300),
+    (162, "162", "Costa Rica Primera Division", 1350),
+    (339, "339", "Guatemala Liga Nacional", 1300),
+    (234, "234", "Honduras Liga Nacional", 1320),
+    (370, "370", "El Salvador Primera Division", 1280),
+    (304, "304", "Liga Panamena de Futbol", 1300),
+    (416, "416", "Belize Premier League", 1250),
+    # --- Ligas domesticas Norteamerica ---
+    (253, "253", "MLS", 1450),
+    (262, "262", "Liga MX", 1480),
+    (479, "479", "Canadian Premier League", 1380),
+    (257, "257", "US Open Cup", 1400),
+    (259, "259", "Canadian Championship", 1380),
+]
+
+# Diccionario derivado para lookup por code.
+API_FOOTBALL_LEAGUES_BY_CODE = {
+    code: {"id": lid, "name": name, "initial_elo": elo}
+    for lid, code, name, elo in API_FOOTBALL_LEAGUES
+}
 
 # Elo system constants (see docs/elo.md)
 ELO_DEFAULT = 1500
@@ -154,6 +225,8 @@ ELO_NEW_TEAM_MATCHES = 20
 # Initial Elo calibration per league (based on relative league strength).
 # Used when creating LeagueStrength entries and assigning Elo to new teams.
 # Teams from stronger leagues start higher; the system self-adjusts over time.
+# Solo competiciones de clubes (football-data). Las selecciones y ligas de
+# api-football se calibran via API_FOOTBALL_LEAGUES (initial_elo).
 ELO_LEAGUE_INITIAL = {
     "PL": 1600,   # Premier League - strongest
     "PD": 1570,   # La Liga
@@ -161,8 +234,6 @@ ELO_LEAGUE_INITIAL = {
     "SA": 1550,   # Serie A
     "FL1": 1540,  # Ligue 1
     "CL": 1600,   # Champions League (top European clubs)
-    "EC": 1580,   # European Championship
-    "WC": 1580,   # World Cup (international)
     "ELC": 1300,  # Championship (second tier England)
     "DED": 1450,  # Eredivisie
     "PPL": 1450,  # Primeira Liga
@@ -174,6 +245,23 @@ ELO_LEAGUE_INITIAL = {
 FORECAST_FORM_MATCHES = 5
 FORECAST_MIN_HISTORY = 5
 POISSON_MAX_GOALS = 5
+# Corrección Dixon-Coles para baja anotación. rho negativo incrementa la
+# probabilidad de 0-0 y 1-1 (Poisson independiente la subestima).
+# Valor típico en fútbol: -0.13. 0.0 desactiva la corrección.
+DIXON_COLES_RHO = -0.13
+# Gol promedio histórico usado como base cuando un equipo no tiene
+# historial suficiente (< FORECAST_MIN_HISTORY). El pronóstico fallback
+# se basa solo en la diferencia Elo multiplicada por este baseline.
+FORECAST_FALLBACK_BASELINE = 1.35
+
+# Ventana de sincronización y pronóstico.
+# Solo se pronostican y sincronizan partidos programados dentro de esta
+# ventana hacia adelante (pronóstico semanal). Los datos lejanos cambian
+# (fechas, forma reciente, Elo) por lo que no tiene sentido pronosticarlos.
+FORECAST_SCHEDULE_DAYS = 7
+# Ventana hacia atrás para capturar resultados recién finalizados
+# (incluye aplazamientos/retardos de actualización de la API).
+SYNC_BACK_DAYS = 3
 
 
 # Logging

@@ -38,6 +38,7 @@ class Command(BaseCommand):
         for data in teams_data:
             team, created_flag = Team.objects.update_or_create(
                 id_api=data["id"],
+                source=Team.Source.FOOTBALLDATA,
                 defaults={
                     "name": data.get("name", ""),
                     "short_name": data.get("shortName", ""),

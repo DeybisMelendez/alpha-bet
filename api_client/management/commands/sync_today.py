@@ -88,7 +88,7 @@ class Command(BaseCommand):
             "competitions_existing": 0,
             "elo_processed": 0,
             "forecasts_generated": 0,
-            "forecasts_skipped": 0,
+            "forecasts_fallback": 0,
             "errors": 0,
         }
 
@@ -176,16 +176,15 @@ class Command(BaseCommand):
                 forecast = generate_forecast(match)
                 if forecast is not None:
                     stats["forecasts_generated"] += 1
+                    if forecast.is_fallback:
+                        stats["forecasts_fallback"] += 1
+                    tag = " (fallback)" if forecast.is_fallback else ""
                     self.stdout.write(
-                        f"    Pronóstico: {forecast.prob_home_win:.0%} / "
+                        f"    Pronóstico{tag}: "
+                        f"{forecast.prob_home_win:.0%} / "
                         f"{forecast.prob_draw:.0%} / "
                         f"{forecast.prob_away_win:.0%}  "
                         f"(xG {forecast.xg_home:.2f}-{forecast.xg_away:.2f})"
-                    )
-                else:
-                    stats["forecasts_skipped"] += 1
-                    self.stdout.write(
-                        "    Pronóstico omitido (historial insuficiente)"
                     )
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(
@@ -202,7 +201,7 @@ class Command(BaseCommand):
             f"  Competiciones: {stats['competitions_new']} nuevas, "
             f"{stats['competitions_existing']} existentes\n"
             f"  Elo procesado: {stats['elo_processed']}\n"
-            f"  Pronósticos: {stats['forecasts_generated']} generados, "
-            f"{stats['forecasts_skipped']} omitidos\n"
+            f"  Pronósticos: {stats['forecasts_generated']} generados "
+            f"({stats['forecasts_fallback']} fallback solo Elo)\n"
             f"  Errores: {stats['errors']}"
         ))

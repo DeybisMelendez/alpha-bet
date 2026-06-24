@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Calcular pronóstico · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Calcular pronóstico</h1>
+<p class="text-muted">
+    Ingrese los ratings manualmente para calcular el pronóstico sin
+    depender de un partido en la base de datos.
+</p>
+
+<form method="post">
+    {% csrf_token %}
+    <div class="grid">
+        <fieldset>
+            <legend>Local</legend>
+            {{ form.home_elo.label_tag }}{{ form.home_elo }}
+            {{ form.home_attack.label_tag }}{{ form.home_attack }}
+            {{ form.home_defense.label_tag }}{{ form.home_defense }}
+        </fieldset>
+        <fieldset>
+            <legend>Visitante</legend>
+            {{ form.away_elo.label_tag }}{{ form.away_elo }}
+            {{ form.away_attack.label_tag }}{{ form.away_attack }}
+            {{ form.away_defense.label_tag }}{{ form.away_defense }}
+        </fieldset>
+    </div>
+    {{ form.home_advantage.label_tag }}{{ form.home_advantage }}
+    {% if form.home_advantage.help_text %}
+    <small class="text-muted">{{ form.home_advantage.help_text }}</small>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+    <ul class="text-muted small">
+        {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    <button type="submit">Calcular</button>
+</form>
+
+{% if calculated %}
+<hr class="mt-2">
+
+<h2>Resultado</h2>
+
+<section class="mb-2">
+    <h3>Probabilidades 1X2</h3>
+    <div class="prob-row">
+        <span class="prob-label">Local (1)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-home" style="width: {% widthratio p_home 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_home 1 100 %}%</span>
+    </div>
+    <div class="prob-row">
+        <span class="prob-label">Empate (X)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-draw" style="width: {% widthratio p_draw 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_draw 1 100 %}%</span>
+    </div>
+    <div class="prob-row">
+        <span class="prob-label">Visitante (2)</span>
+        <div class="prob-bar-bg">
+            <div class="prob-bar prob-bar-away" style="width: {% widthratio p_away 1 100 %}%"></div>
+        </div>
+        <span class="prob-value monospace">{% widthratio p_away 1 100 %}%</span>
+    </div>
+    <p class="text-muted small mt-1">
+        Resultado más probable: <strong>{{ top_i }} - {{ top_j }}</strong>
+        ({% widthratio top_prob 1 100 %}%)
+    </p>
+</section>
+
+<div class="grid mt-1">
+    <section>
+        <h3>Goles esperados (xG)</h3>
+        <table class="compact">
+            <thead><tr><th>Equipo</th><th class="text-center">λ</th></tr></thead>
+            <tbody>
+                <tr>
+                    <td>Local</td>
+                    <td class="text-center monospace">{{ xg_home|floatformat:3 }}</td>
+                </tr>
+                <tr>
+                    <td>Visitante</td>
+                    <td class="text-center monospace">{{ xg_away|floatformat:3 }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+
+<section class="mt-2">
+    <h3>Matriz de resultados (Poisson)</h3>
+    <div class="overflow-auto">
+    <table class="poisson-matrix">
+        <thead>
+            <tr>
+                <th></th>
+                {% for j in goal_range %}<th>{{ j }}</th>{% endfor %}
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in matrix_rows %}
+            <tr>
+                <th>{{ row.i }}</th>
+                {% for cell in row.cells %}
+                <td class="poisson-cell
+                    {% if cell.kind == 'top' %}po-top
+                    {% elif cell.kind == 'home' %}po-home
+                    {% elif cell.kind == 'draw' %}po-draw
+                    {% else %}po-away{% endif %}">
+                    {{ cell.p|floatformat:3 }}
+                </td>
+                {% endfor %}
+                <td class="monospace small text-muted">{{ row.row_sum|floatformat:3 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="text-muted small mt-1">
+        Filas: goles del local · Columnas: goles del visitante.
+        Azul = victoria local, gris = empate, rojo = victoria visitante.
+        La celda más probable aparece resaltada.
+    </p>
+</section>
+{% endif %}
+{% endblock %}

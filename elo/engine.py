@@ -95,7 +95,7 @@ def compute_elo_update(
     }
 
 
-def apply_elo_update(match):
+def apply_elo_update(match, regenerate_forecasts=True):
     if match.elo_processed:
         return None
     if not match.has_result:
@@ -150,6 +150,23 @@ def apply_elo_update(match):
         delta=result["away_delta"],
     )
 
+    # Refrescar los pronósticos de los próximos partidos de ambos equipos
+    # para que reflejen el nuevo Elo y la nueva forma reciente.
+    # Se omite durante carga histórica masiva (process_pending_matches)
+    # porque no tiene sentido regenerar pronósticos para partidos del pasado.
+    if regenerate_forecasts:
+        from forecasts.engine import regenerate_for_teams
+        try:
+            regenerated, fallback = regenerate_for_teams([home, away])
+            result["forecasts_regenerated"] = regenerated
+            result["forecasts_fallback"] = fallback
+        except Exception:
+            import logging
+            logging.getLogger("alpha").exception(
+                "Error refrescando pronósticos tras Elo en partido %s",
+                match.id_api,
+            )
+
     return result
 
 
@@ -161,9 +178,17 @@ def assign_initial_elo(team, competition, season=""):
     if strength is not None:
         team.elo = strength.average_elo
     else:
-        team.elo = settings.ELO_LEAGUE_INITIAL.get(
-            competition.code, settings.ELO_DEFAULT
+        # Competiciones de football-data usan ELO_LEAGUE_INITIAL por code.
+        # Competiciones de api-football usan API_FOOTBALL_LEAGUES_BY_CODE.
+        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_CODE", {}).get(
+            competition.code
         )
+        if af is not None:
+            team.elo = af["initial_elo"]
+        else:
+            team.elo = settings.ELO_LEAGUE_INITIAL.get(
+                competition.code, settings.ELO_DEFAULT
+            )
     return team.elo
 
 
@@ -213,7 +238,9 @@ def process_pending_matches(limit=None):
     processed = 0
     for match in pending:
         try:
-            result = apply_elo_update(match)
+            result = apply_elo_update(
+                match, regenerate_forecasts=False
+            )
             if result is not None:
                 processed += 1
         except Exception:

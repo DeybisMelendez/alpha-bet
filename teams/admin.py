@@ -5,35 +5,75 @@ from teams.models import Competition, Team, TeamCompetition
 
 @admin.register(Competition)
 class CompetitionAdmin(admin.ModelAdmin):
-    list_display = ("id_api", "code", "name", "area_name", "current_season")
-    list_filter = ("plan", "area_name")
-    search_fields = ("name", "code", "area_name")
+    list_display = ("code", "name", "area_name", "plan", "current_season", "team_count")
+    list_display_links = ("code", "name")
+    list_filter = ("plan", "area_name", "current_season")
+    search_fields = ("name", "code", "area_name", "area_code")
     ordering = ("name",)
+    fieldsets = (
+        (None, {
+            "fields": ("id_api", "code", "name"),
+        }),
+        ("Ubicación", {
+            "fields": ("area_name", "area_code"),
+        }),
+        ("Configuración", {
+            "fields": ("plan", "current_season"),
+        }),
+    )
+    readonly_fields = ("id_api",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("team_links")
+
+    def team_count(self, obj):
+        return obj.team_links.count()
+    team_count.short_description = "Equipos"
 
 
 class TeamCompetitionInline(admin.TabularInline):
     model = TeamCompetition
     extra = 0
+    fields = ("competition", "season")
+    readonly_fields = ("competition", "season")
 
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = (
-        "id_api",
-        "name",
-        "tla",
-        "elo",
-        "matches_played",
-        "founded",
-    )
-    list_filter = ("founded",)
-    search_fields = ("name", "short_name", "tla")
+    list_display = ("name", "tla", "elo", "matches_played", "founded", "has_crest")
+    list_display_links = ("name", "tla")
+    list_filter = ("founded", "competition_links__competition", "competition_links__season")
+    search_fields = ("name", "short_name", "tla", "venue")
     ordering = ("-elo", "name")
+    fieldsets = (
+        (None, {
+            "fields": ("id_api", "name", "short_name", "tla", "crest_url"),
+        }),
+        ("Información", {
+            "fields": ("founded", "venue", "website"),
+        }),
+        ("Elo", {
+            "fields": ("elo", "matches_played"),
+        }),
+    )
+    readonly_fields = ("id_api",)
     inlines = [TeamCompetitionInline]
+    list_per_page = 50
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("competition_links")
+
+    def has_crest(self, obj):
+        return bool(obj.crest_url)
+    has_crest.boolean = True
+    has_crest.short_description = "Escudo"
 
 
 @admin.register(TeamCompetition)
 class TeamCompetitionAdmin(admin.ModelAdmin):
     list_display = ("team", "competition", "season")
+    list_display_links = ("team",)
     list_filter = ("competition", "season")
-    search_fields = ("team__name", "competition__name")
+    search_fields = ("team__name", "team__tla", "competition__name", "competition__code")
+    ordering = ("-season", "competition", "team")
+    list_per_page = 50

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }} · Alpha Bet{% endblock %}
+
+{% block content %}
+<header class="mb-2">
+    <h1>
+        {% if team.crest_url %}
+        <img src="{{ team.crest_url }}" alt="" class="team-crest">
+        {% endif %}
+        {{ team.name }}
+    </h1>
+    {% if team.tla %}<p class="text-muted">{{ team.tla }}{% if team.short_name %} · {{ team.short_name }}{% endif %}</p>{% endif %}
+</header>
+
+<div class="kpi-grid mb-2">
+    <article class="kpi">
+        <h2 class="monospace">{{ team.elo|floatformat:0 }}</h2>
+        <p>Elo actual</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ team.matches_played }}</h2>
+        <p>Partidos</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ attack_rating|floatformat:2 }}</h2>
+        <p>Ataque ajust.</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ defense_rating|floatformat:2 }}</h2>
+        <p>Defensa ajust.</p>
+    </article>
+</div>
+
+<section class="mb-2">
+    <h2>Información</h2>
+    <table class="compact">
+        <tbody>
+            <tr><th>Fundado</th><td>{{ team.founded|default:"-" }}</td></tr>
+            <tr><th>Estadio</th><td>{{ team.venue|default:"-" }}</td></tr>
+            <tr><th>Sitio web</th><td>
+                {% if team.website %}<a href="{{ team.website }}" target="_blank" rel="noopener">{{ team.website }}</a>{% else %}-{% endif %}
+            </td></tr>
+        </tbody>
+    </table>
+</section>
+
+<section class="mb-2">
+    <h2>Forma reciente</h2>
+    <p>
+        {% for label in form_labels %}
+            {% if label == 'W' %}<span class="badge form-W">G</span>
+            {% elif label == 'L' %}<span class="badge form-L">P</span>
+            {% elif label == 'D' %}<span class="badge form-D">E</span>
+            {% else %}<span class="badge badge-muted">-</span>{% endif %}
+        {% empty %}
+            <span class="text-muted">Sin historial.</span>
+        {% endfor %}
+    </p>
+</section>
+
+<div class="grid mt-2">
+    <section>
+        <h2>Últimos 5 partidos</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>Fecha</th><th>Rival</th><th class="text-center">Resultado</th></tr>
+            </thead>
+            <tbody>
+                {% for match in recent_matches %}
+                <tr>
+                    <td class="nowrap small">{{ match.utc_date|date:"d/m/y" }}</td>
+                    <td>
+                        {% if team == match.home_team %}
+                            <a href="{% url 'teams:detail' match.away_team.pk %}">{{ match.away_team.name }}</a> <span class="text-muted small">(V)</span>
+                        {% else %}
+                            <a href="{% url 'teams:detail' match.home_team.pk %}">{{ match.home_team.name }}</a> <span class="text-muted small">(L)</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center monospace">{{ match.home_goals }} - {{ match.away_goals }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="text-muted">Sin partidos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <aside>
+        <h2>Próximos partidos</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>Fecha</th><th>Rival</th><th>Comp.</th></tr>
+            </thead>
+            <tbody>
+                {% for match in upcoming_matches %}
+                <tr>
+                    <td class="nowrap small">{{ match.utc_date|date:"d/m H:i" }}</td>
+                    <td>
+                        {% if team == match.home_team %}
+                            <a href="{% url 'teams:detail' match.away_team.pk %}">{{ match.away_team.name }}</a> <span class="text-muted small">(V)</span>
+                        {% else %}
+                            <a href="{% url 'teams:detail' match.home_team.pk %}">{{ match.home_team.name }}</a> <span class="text-muted small">(L)</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'competitions:detail' match.competition.code %}">{{ match.competition.code }}</a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="text-muted">Sin partidos próximos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </aside>
+</div>
+
+<section class="mt-2">
+    <h2>Competiciones</h2>
+    <table class="compact">
+        <thead><tr><th>Competición</th><th>Temporada</th></tr></thead>
+        <tbody>
+            {% for tc in competitions %}
+            <tr>
+                <td>
+                    <a href="{% url 'competitions:detail' tc.competition.code %}">{{ tc.competition.name }}</a>
+                </td>
+                <td class="small">{{ tc.season }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2" class="text-muted">Sin competiciones.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="mt-2">
+    <h2>Historial Elo</h2>
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Partido</th>
+                <th class="text-center">Antes</th>
+                <th class="text-center">Δ</th>
+                <th class="text-center">Después</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for log in elo_logs %}
+            <tr>
+                <td class="nowrap small">{{ log.match.utc_date|date:"d/m/y" }}</td>
+                <td>
+                    <a href="{% url 'matches:detail' log.match.pk %}">
+                        {{ log.match.home_team.name }} vs {{ log.match.away_team.name }}
+                    </a>
+                </td>
+                <td class="text-center monospace">{{ log.elo_before|floatformat:0 }}</td>
+                <td class="text-center monospace">
+                    {% if log.delta > 0 %}+{% endif %}{{ log.delta|floatformat:1 }}
+                </td>
+                <td class="text-center monospace">{{ log.elo_after|floatformat:0 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-muted">Sin historial Elo.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

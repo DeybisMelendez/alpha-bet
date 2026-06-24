@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Inicio · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Alpha Bet</h1>
+<p class="text-muted">Plataforma personal de pronósticos de fútbol.</p>
+
+<section class="kpi-grid mt-2">
+    <article class="kpi">
+        <h2 class="monospace">{{ competitions_count }}</h2>
+        <p>Competiciones</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ teams_count }}</h2>
+        <p>Equipos</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ upcoming_count }}</h2>
+        <p>Próximos partidos</p>
+    </article>
+    <article class="kpi">
+        <h2 class="monospace">{{ finished_today_count }}</h2>
+        <p>Finalizados hoy</p>
+    </article>
+</section>
+
+<div class="grid mt-2">
+    <section>
+        <h2>Top 5 equipos (Elo)</h2>
+        <table class="compact">
+            <thead>
+                <tr><th>#</th><th>Equipo</th><th class="text-center">Elo</th></tr>
+            </thead>
+            <tbody>
+                {% for team in top_teams %}
+                <tr>
+                    <td class="rank-num monospace">{{ forloop.counter }}</td>
+                    <td>
+                        <a href="{% url 'teams:detail' team.pk %}">{{ team.name }}</a>
+                    </td>
+                    <td class="text-center monospace">{{ team.elo|floatformat:0 }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="text-muted">Sin equipos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <aside>
+        <h2>Próximos partidos</h2>
+        <table class="compact">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Partido</th>
+                    <th>Comp.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for match in upcoming_matches %}
+                <tr>
+                    <td class="nowrap small">{{ match.utc_date|date:"d/m H:i" }}</td>
+                    <td>
+                        <a href="{% url 'matches:detail' match.pk %}">
+                            {{ match.home_team.name }} vs {{ match.away_team.name }}
+                        </a>
+                    </td>
+                    <td>
+                        <a href="{% url 'competitions:detail' match.competition.code %}">
+                            {{ match.competition.code }}
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" class="text-muted">Sin partidos próximos.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </aside>
+</div>
+
+<section class="mt-2">
+    <h2>Pronósticos recientes</h2>
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>Partido</th>
+                <th class="text-center">1</th>
+                <th class="text-center">X</th>
+                <th class="text-center">2</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in latest_forecasts %}
+            <tr>
+                <td class="nowrap small">{{ match.utc_date|date:"d/m H:i" }}</td>
+                <td>
+                    {% if match.forecast %}
+                    <a href="{% url 'forecasts:detail' match.forecast.pk %}">
+                        {{ match.home_team.name }} vs {{ match.away_team.name }}
+                    </a>
+                    {% else %}
+                    {{ match.home_team.name }} vs {{ match.away_team.name }}
+                    {% endif %}
+                </td>
+                {% if match.forecast %}
+                <td class="text-center monospace">{% widthratio match.forecast.prob_home_win 1 100 %}%</td>
+                <td class="text-center monospace">{% widthratio match.forecast.prob_draw 1 100 %}%</td>
+                <td class="text-center monospace">{% widthratio match.forecast.prob_away_win 1 100 %}%</td>
+                {% else %}
+                <td colspan="3" class="text-muted text-center">Sin pronóstico</td>
+                {% endif %}
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-muted">Sin pronósticos.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

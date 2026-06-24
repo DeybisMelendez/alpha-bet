@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Alpha Bet{% endblock %}</title>
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    >
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/custom.css' %}">
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+            <li><strong><a href="{% url 'home' %}">Alpha Bet</a></strong></li>
+        </ul>
+        <ul>
+            <li><a href="{% url 'home' %}">Inicio</a></li>
+            <li><a href="{% url 'competitions:list' %}">Competiciones</a></li>
+            <li><a href="{% url 'forecasts:list' %}">Pronósticos</a></li>
+            <li><a href="{% url 'forecasts:calculate' %}">Calcular</a></li>
+            <li><a href="{% url 'matches:list' %}">Partidos</a></li>
+            <li><a href="{% url 'teams:list' %}">Equipos</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <footer class="container">
+        <small>Alpha Bet · Sistema personal de pronósticos de fútbol</small>
+    </footer>
+</body>
+</html>

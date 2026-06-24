@@ -66,35 +66,17 @@ Se calcula un factor:
 
 Factor Rival = Elo Rival / Elo Equipo
 
-Ejemplo:
+Importante: se utiliza el Elo con el que cada equipo **entró al partido** (elo_before), tanto del propio equipo como del rival. Usar el Elo posterior (elo_after) filtraría el propio resultado en el factor de dificultad: ganar a un rival hace que su rating baje y que la victoria parezca más fácil de lo que fue. Por eso se fija la fuerza justo antes del partido.
 
-Equipo Elo 1800
+Ejemplo para Equipo A (Elo 1800 al entrar):
 
-Rival Elo 1600
-
-Factor = 1600 / 1800 = 0.89
-
-Si anotó 3 goles:
-
-Goles Ajustados = 3 × 0.89 = 2.67
-
----
-
-Otro ejemplo:
-
-Equipo Elo 1800
-
-Rival Elo 1900
-
-Factor = 1900 / 1800 = 1.06
-
-Si anotó 2 goles:
-
-Goles Ajustados = 2 × 1.06 = 2.12
-
----
-
-Se realiza el mismo ajuste para los goles recibidos.
+| Rival Elo (al entrar) | Resultado |
+| --------- | --------- |
+| 1750      | 2-1       |
+| 1850      | 1-1       |
+| 1600      | 3-0       |
+| 1700      | 2-0       |
+| 1900      | 1-2       |
 
 ---
 
