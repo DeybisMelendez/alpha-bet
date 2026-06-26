@@ -46,31 +46,107 @@
 </section>
 
 <section class="mt-2">
+    <h2>Mercados de apuestas</h2>
+    <p class="text-muted small">
+        Probabilidades del modelo para mercados derivados de la matriz Poisson.
+        Compáralas con las cuotas de la casa en la sección Value Bet.
+    </p>
+    <div class="grid">
+        <article>
+            <h3>Doble oportunidad y sin empate</h3>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>1X (local o empate)</td>
+                        <td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>X2 (empate o visitante)</td>
+                        <td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>12 (sin empate)</td>
+                        <td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </article>
+        <article>
+            <h3>Ambos marcan (BTTS)</h3>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>Sí</td>
+                        <td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>No</td>
+                        <td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
+        </article>
+    </div>
+</section>
+
+<section class="mt-2">
     <h2>Value Bet</h2>
     <p class="text-muted small">
-        Ingresa las cuotas 1X2 de la casa de apuestas para compararlas con las
-        probabilidades del modelo. Las cuotas no se guardan; el análisis es
-        solo para este partido.
+        Ingresa las cuotas de la casa de apuestas para compararlas con las
+        probabilidades del modelo. Solo necesitas llenar los mercados que
+        quieras valorar (el trío 1X2 va junto). Las cuotas no se guardan; el
+        análisis es solo para este partido.
     </p>
     <form method="post">
         {% csrf_token %}
-        <div class="grid">
-            <label>{{ value_form.odd_home.label }}
-                <input type="number" step="0.01" min="1.01" name="odd_home"
-                       value="{{ value_form.odd_home.value|default_if_none:'' }}"
-                       placeholder="ej. 2.10">
-            </label>
-            <label>{{ value_form.odd_draw.label }}
-                <input type="number" step="0.01" min="1.01" name="odd_draw"
-                       value="{{ value_form.odd_draw.value|default_if_none:'' }}"
-                       placeholder="ej. 3.30">
-            </label>
-            <label>{{ value_form.odd_away.label }}
-                <input type="number" step="0.01" min="1.01" name="odd_away"
-                       value="{{ value_form.odd_away.value|default_if_none:'' }}"
-                       placeholder="ej. 3.40">
-            </label>
-        </div>
+        <details open>
+            <summary><strong>1X2</strong></summary>
+            <div class="grid">
+                <label>{{ value_form.odd_home.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_home"
+                           value="{{ value_form.odd_home.value|default_if_none:'' }}"
+                           placeholder="ej. 2.10">
+                </label>
+                <label>{{ value_form.odd_draw.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_draw"
+                           value="{{ value_form.odd_draw.value|default_if_none:'' }}"
+                           placeholder="ej. 3.30">
+                </label>
+                <label>{{ value_form.odd_away.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_away"
+                           value="{{ value_form.odd_away.value|default_if_none:'' }}"
+                           placeholder="ej. 3.40">
+                </label>
+            </div>
+        </details>
+        <details>
+            <summary><strong>Mercados derivados</strong></summary>
+            <div class="grid">
+                <label>{{ value_form.odd_1x.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_1x"
+                           value="{{ value_form.odd_1x.value|default_if_none:'' }}"
+                           placeholder="ej. 1.20">
+                </label>
+                <label>{{ value_form.odd_x2.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_x2"
+                           value="{{ value_form.odd_x2.value|default_if_none:'' }}"
+                           placeholder="ej. 1.45">
+                </label>
+                <label>{{ value_form.odd_12.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_12"
+                           value="{{ value_form.odd_12.value|default_if_none:'' }}"
+                           placeholder="ej. 1.55">
+                </label>
+                <label>{{ value_form.odd_btts.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_btts"
+                           value="{{ value_form.odd_btts.value|default_if_none:'' }}"
+                           placeholder="ej. 1.80">
+                </label>
+            </div>
+        </details>
         {% if value_form.non_field_errors %}
         <p class="text-muted small">{{ value_form.non_field_errors }}</p>
         {% endif %}
@@ -81,7 +157,7 @@
     <table class="compact mt-1">
         <thead>
             <tr>
-                <th>Resultado</th>
+                <th>Mercado</th>
                 <th>Cuota</th>
                 <th>Prob. modelo</th>
                 <th>Prob. implícita</th>
@@ -98,7 +174,11 @@
                 <td>
                     {% if row.label == 'home' %}Local (1)
                     {% elif row.label == 'draw' %}Empate (X)
-                    {% else %}Visitante (2){% endif %}
+                    {% elif row.label == 'away' %}Visitante (2)
+                    {% elif row.label == '1x' %}Doble op. 1X
+                    {% elif row.label == 'x2' %}Doble op. X2
+                    {% elif row.label == '12' %}Sin empate (12)
+                    {% elif row.label == 'btts' %}Ambos marcan{% endif %}
                 </td>
                 <td class="monospace">{{ row.odd|floatformat:2 }}</td>
                 <td class="monospace">{% widthratio row.prob 1 100 %}%</td>
@@ -123,7 +203,7 @@
         </tbody>
     </table>
     <p class="text-muted small mt-1">
-        Margen de la casa (vig):
+        Margen de la casa (vig, solo sobre 1X2):
         {% if value_analysis.vig is not None %}
             <strong>{% widthratio value_analysis.vig 1 100 %}%</strong>
         {% else %}
@@ -137,13 +217,17 @@
         <strong>
             {% if value_analysis.recommendation.label == 'home' %}Local (1)
             {% elif value_analysis.recommendation.label == 'draw' %}Empate (X)
-            {% else %}Visitante (2){% endif %}
+            {% elif value_analysis.recommendation.label == 'away' %}Visitante (2)
+            {% elif value_analysis.recommendation.label == '1x' %}Doble op. 1X
+            {% elif value_analysis.recommendation.label == 'x2' %}Doble op. X2
+            {% elif value_analysis.recommendation.label == '12' %}Sin empate (12)
+            {% elif value_analysis.recommendation.label == 'btts' %}Ambos marcan{% endif %}
         </strong>
         <span class="badge badge-success small">VALUE</span>
         · EV {% widthratio value_analysis.recommendation.ev 1 100 %}%
     </p>
     {% else %}
-    <p class="text-muted small">Ningún resultado ofrece value bet con estas cuotas.</p>
+    <p class="text-muted small">Ningún mercado ofrece value bet con estas cuotas.</p>
     {% endif %}
     {% endif %}
 </section>
@@ -187,7 +271,13 @@
         <p class="text-muted small">{{ forecast.match.away_team.name }}: historial {{ forecast.form_away.history_count|default:"0" }} partidos.</p>
         {% endif %}
         {% if forecast.is_fallback %}
-        <p class="badge badge-warning small">Pronóstico basado solo en Elo (historial insuficiente).</p>
+        <p class="badge badge-warning small">Pronóstico basado solo en Elo
+          {% if forecast.form_home.stale or forecast.form_away.stale %}
+            (forma reciente desactualizada)
+          {% else %}
+            (historial insuficiente)
+          {% endif %}
+        </p>
         {% endif %}
     </aside>
 </div>

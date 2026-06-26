@@ -68,7 +68,7 @@ def ensure_competition(comp_data, client=None, enrich=False):
 def ensure_team(team_data, competition, season_str, client=None, enrich=False):
     team_id = team_data.get("id")
     if team_id is None:
-        return None
+        return None, False
 
     team = Team.objects.filter(id_api=team_id, source=SOURCE).first()
     if team is not None:
@@ -81,6 +81,23 @@ def ensure_team(team_data, competition, season_str, client=None, enrich=False):
                 season=season_str,
             )
         return team, False
+
+    # Si no existe con source=footballdata, buscar por nombre en
+    # api-football. Esto evita duplicar selecciones nacionales que ya
+    # tienen historial (Elo, partidos) bajo source=apifootball.
+    team_name = team_data.get("name", "")
+    if team_name:
+        existing = Team.objects.filter(
+            name=team_name, source=Team.Source.APIFOOTBALL
+        ).first()
+        if existing is not None:
+            if season_str:
+                TeamCompetition.objects.get_or_create(
+                    team=existing,
+                    competition=competition,
+                    season=season_str,
+                )
+            return existing, False
 
     full_data = None
     if enrich and client is not None:

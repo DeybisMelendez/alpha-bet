@@ -59,6 +59,7 @@ Para ejecución recurrente vía cron (ej. 8:00 AM):
 - `core/settings.py` loads env from `.secret`
 - Language: Spanish (LANGUAGE_CODE=`es-ni`, TIME_ZONE=`America/Managua`)
 - Two data sources split by competition type (excluyente):
-  - `footballdata`: club competitions (PL, PD, BL1, SA, FL1, CL, BSA, ELC, DED, PPL, CLI)
-  - `apifootball`: national teams (all confederations), CONCACAF club cups, CA/NA leagues
+  - `footballdata`: club competitions (PL, PD, BL1, SA, FL1, CL, BSA, ELC, DED, PPL, CLI) + World Cup (WC)
+  - `apifootball`: national teams (all confederations except WC), CONCACAF club cups, CA/NA leagues
 - `source` field on `Competition`/`Team`/`Match` distinguishes origin; uniqueness is `(id_api, source)`
+- WC matches have `source=footballdata` but reference teams with `source=apifootball` (preserving Elo/history). `ensure_team` in `api_client/sync.py` matches by name across sources to avoid duplicates.

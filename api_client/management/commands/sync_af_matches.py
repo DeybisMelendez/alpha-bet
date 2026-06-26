@@ -23,6 +23,24 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--days-back",
+            type=int,
+            default=1,
+            help=(
+                "Días hacia atrás a consultar (default: 1). El plan Free "
+                "de API-Football solo permite hoy ± 1 día."
+            ),
+        )
+        parser.add_argument(
+            "--days-ahead",
+            type=int,
+            default=1,
+            help=(
+                "Días hacia adelante a consultar (default: 1). El plan "
+                "Free de API-Football solo permite hoy ± 1 día."
+            ),
+        )
+        parser.add_argument(
             "--no-elo",
             action="store_true",
             help="No procesar Elo tras sincronizar.",
@@ -37,18 +55,21 @@ class Command(BaseCommand):
         client = ApiFootballClient()
         no_elo = options["no_elo"]
         no_forecasts = options["no_forecasts"]
+        days_back = options["days_back"]
+        days_ahead = options["days_ahead"]
 
         # IDs de ligas trackeadas para filtrado client-side.
         tracked_ids = {
             lid for lid, _, _, _ in settings.API_FOOTBALL_LEAGUES
         }
 
+        # Ventana de fechas a consultar. El plan Free de API-Football
+        # restringe a hoy ± 1 día; valores mayores solo funcionan en
+        # planes de pago. Se mantiene configurable para flexibilidad.
         today = date.today()
-        dates = [
-            (today - timedelta(days=1)).isoformat(),
-            today.isoformat(),
-            (today + timedelta(days=1)).isoformat(),
-        ]
+        dates = []
+        for offset in range(-days_back, days_ahead + 1):
+            dates.append((today + timedelta(days=offset)).isoformat())
 
         stats = {
             "matches_new": 0,

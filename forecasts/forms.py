@@ -77,17 +77,43 @@ class ValueBetForm(forms.Form):
         min_value=1.01,
         required=False,
     )
+    odd_1x = forms.FloatField(
+        label="Cuota doble op. 1X",
+        min_value=1.01,
+        required=False,
+        help_text="Local o empate.",
+    )
+    odd_x2 = forms.FloatField(
+        label="Cuota doble op. X2",
+        min_value=1.01,
+        required=False,
+        help_text="Empate o visitante.",
+    )
+    odd_12 = forms.FloatField(
+        label="Cuota sin empate (12)",
+        min_value=1.01,
+        required=False,
+        help_text="Gana local o gana visitante.",
+    )
+    odd_btts = forms.FloatField(
+        label="Cuota ambos marcan",
+        min_value=1.01,
+        required=False,
+        help_text="Ambos equipos marcan al menos un gol.",
+    )
 
     def clean(self):
         cleaned = super().clean()
-        odds = [
+        # El trío 1X2 se valida como bloque: todas o ninguna.
+        trio = [
             cleaned.get("odd_home"),
             cleaned.get("odd_draw"),
             cleaned.get("odd_away"),
         ]
-        provided = [o for o in odds if o is not None]
-        if 0 < len(provided) < 3:
+        provided_trio = [o for o in trio if o is not None]
+        if 0 < len(provided_trio) < 3:
             raise forms.ValidationError(
-                "Si ingresa una cuota, debe ingresar las tres (1, X y 2)."
+                "Si ingresa una cuota 1X2, debe ingresar las tres (1, X y 2)."
             )
+        # Los mercados derivados son independientes entre sí.
         return cleaned

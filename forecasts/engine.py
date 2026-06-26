@@ -50,6 +50,39 @@ def recent_finished_matches(team, n=None):
     )
 
 
+def last_match_date(team):
+    """Fecha del partido finalizado más reciente del equipo (o None)."""
+    m = (
+        Match.objects.filter(
+            Q(home_team=team) | Q(away_team=team),
+            status=Match.Status.FINISHED,
+            home_goals__isnull=False,
+            away_goals__isnull=False,
+        )
+        .order_by("-utc_date")
+        .first()
+    )
+    return m.utc_date if m else None
+
+
+def is_form_stale(team, max_months=None, now=None):
+    """Detecta si la forma reciente del equipo está desactualizada.
+
+    Devuelve True si el último partido finalizado del equipo es más
+    antiguo que FORECAST_STALE_MONTHS. En ese caso la forma reciente no
+    es representativa y el pronóstico debe usar fallback Elo-only.
+    """
+    if max_months is None:
+        max_months = getattr(settings, "FORECAST_STALE_MONTHS", 6)
+    if now is None:
+        now = timezone.now()
+    last = last_match_date(team)
+    if last is None:
+        return True
+    age_days = (now - last).days
+    return age_days > max_months * 30
+
+
 def _goals_for(team, match):
     if team == match.home_team:
         return match.home_goals
@@ -240,6 +273,50 @@ def probabilities_1x2(matrix):
     return p_home, p_draw, p_away
 
 
+# Mercados derivados mostrables en la vista de pronóstico. El orden define
+# cómo se presentan en la UI. Las claves coinciden con los campos de cuotas
+# del ValueBetForm (odd_<clave>) y con los labels esperados por el template.
+MARKET_LABELS = (
+    ("home", "Local (1)"),
+    ("draw", "Empate (X)"),
+    ("away", "Visitante (2)"),
+    ("1x", "Doble op. 1X"),
+    ("x2", "Doble op. X2"),
+    ("12", "Sin empate (12)"),
+    ("btts", "Ambos marcan"),
+)
+
+
+def market_probabilities(matrix):
+    """Probabilidades de todos los mercados de apuestas derivados de la matriz.
+
+    Devuelve un dict clave -> probabilidad:
+      * 1X2 base: home, draw, away.
+      * Doble oportunidad: 1x (local o empate), x2 (empate o visitante).
+      * Sin empate (12): gana local o gana visitante = 1 - p_draw.
+      * BTTS (ambos marcan): P(local >= 1 y visitante >= 1).
+
+    El BTTS se suma celda a celda (no se asume independencia entre goles)
+    porque la corrección Dixon-Coles introduce dependencia en baja anotación.
+    """
+    p_home, p_draw, p_away = probabilities_1x2(matrix)
+    btts = 0.0
+    for i, row in enumerate(matrix):
+        for j, p in enumerate(row):
+            if i >= 1 and j >= 1:
+                btts += p
+    return {
+        "home": p_home,
+        "draw": p_draw,
+        "away": p_away,
+        "1x": p_home + p_draw,
+        "x2": p_draw + p_away,
+        "12": p_home + p_away,
+        "btts": btts,
+        "btts_no": 1.0 - btts,
+    }
+
+
 def _form_summary(team):
     matches = recent_finished_matches(team)
     form = []
@@ -273,10 +350,14 @@ def team_history_count(team):
     )
 
 
-def value_bet_analysis(prob_home, prob_draw, prob_away, odd_home, odd_draw, odd_away):
-    """Compara las probabilidades del modelo con cuotas de casa de apuestas.
+def value_bet_analysis(market_probs, odds):
+    """Compara las probabilidades del modelo con cuotas por mercado.
 
-    Para cada resultado (1, X, 2) calcula:
+    Recibe las probabilidades de los mercados (dict clave -> prob, ver
+    `market_probabilities`) y las cuotas ingresadas (dict clave -> odd,
+    pueden ser None para los mercados sin cuota).
+
+    Para cada mercado con cuota calcula:
       * fair_odds: cuota justa del modelo (1 / prob_modelo).
       * implied_prob: probabilidad implícita en la cuota (1 / cuota).
       * ev: valor esperado por unidad apostada (prob_modelo * cuota - 1).
@@ -284,30 +365,32 @@ def value_bet_analysis(prob_home, prob_draw, prob_away, odd_home, odd_draw, odd_
       * edge: ventaja del modelo sobre la cuota (prob_modelo - implied_prob).
       * is_value: True si ev > 0.
 
-    Además calcula el margen de la casa (vig/overround) como la suma de las
-    probabilidades implícitas menos 1, y la recomendación (resultado con
-    mayor EV positivo).
+    El margen de la casa (vig/overround) solo tiene sentido sobre un grupo
+    de resultados mutuamente excluyentes y exhaustivos, por eso se calcula
+    únicamente para el trío 1X2 (cuando las tres cuotas están presentes).
+
+    La recomendación es el mercado con mayor EV positivo.
 
     Las cuotas se ingresan manualmente: ninguna API del proyecto ofrece
     odds en su plan Free. El análisis es transitorio (no se persiste).
     """
     rows = []
-    labels = ["home", "draw", "away"]
-    probs = [prob_home, prob_draw, prob_away]
-    odds = [odd_home, odd_draw, odd_away]
-
-    for label, prob, odd in zip(labels, probs, odds):
+    for key, _label in MARKET_LABELS:
+        prob = market_probs.get(key)
+        odd = odds.get(key)
+        if prob is None:
+            continue
         if odd is None or odd <= 0:
-            rows.append({"label": label, "odd": None})
+            rows.append({"label": key, "prob": prob, "odd": None})
             continue
         fair_odds = 1.0 / prob if prob > 0 else float("inf")
         implied = 1.0 / odd
         ev = prob * odd - 1.0
         edge = prob - implied
         rows.append({
-            "label": label,
-            "odd": odd,
+            "label": key,
             "prob": prob,
+            "odd": odd,
             "implied_prob": implied,
             "fair_odds": fair_odds,
             "ev": ev,
@@ -316,9 +399,10 @@ def value_bet_analysis(prob_home, prob_draw, prob_away, odd_home, odd_draw, odd_
         })
 
     provided = [r for r in rows if r["odd"] is not None]
-    vig = None
-    if len(provided) == 3:
-        vig = sum(r["implied_prob"] for r in provided) - 1.0
+
+    # Vig solo para el trío 1X2: resultados que particionan el espacio.
+    trio = [r for r in rows if r["label"] in ("home", "draw", "away") and r["odd"] is not None]
+    vig = sum(r["implied_prob"] for r in trio) - 1.0 if len(trio) == 3 else None
 
     value_rows = [r for r in provided if r["is_value"]]
     recommendation = max(value_rows, key=lambda r: r["ev"]) if value_rows else None
@@ -334,14 +418,30 @@ def generate_forecast(match):
     away_history = team_history_count(away)
     min_history = settings.FORECAST_MIN_HISTORY
 
+    # Se usa fallback cuando un equipo no tiene historial suficiente o
+    # cuando su forma reciente está desactualizada (stale). Esto último
+    # ocurre con selecciones nacionales cuyo historial tiene huecos por
+    # las restricciones del plan Free de API-Football (solo hoy ± 1 día).
+    home_stale = is_form_stale(home)
+    away_stale = is_form_stale(away)
+
     is_fallback = (
-        home_history < min_history or away_history < min_history
+        home_history < min_history
+        or away_history < min_history
+        or home_stale
+        or away_stale
     )
 
     if is_fallback:
         xg_home, xg_away = expected_goals_elo_only(home, away)
-        form_home = {"history_count": home_history}
-        form_away = {"history_count": away_history}
+        form_home = {
+            "history_count": home_history,
+            "stale": home_stale,
+        }
+        form_away = {
+            "history_count": away_history,
+            "stale": away_stale,
+        }
     else:
         xg_home, xg_away = expected_goals(home, away)
         form_home = _form_summary(home)

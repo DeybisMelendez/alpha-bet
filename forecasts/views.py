@@ -5,6 +5,7 @@ from django.utils import timezone
 from forecasts.engine import (
     build_matrix,
     expected_goals_from_ratings,
+    market_probabilities,
     probabilities_1x2,
     value_bet_analysis,
 )
@@ -22,6 +23,7 @@ def _build_matrix_context(xg_home, xg_away):
     """
     matrix = build_matrix(xg_home, xg_away)
     p_home, p_draw, p_away = probabilities_1x2(matrix)
+    markets = market_probabilities(matrix)
 
     max_goals = settings.POISSON_MAX_GOALS
     goal_range = list(range(max_goals + 1))
@@ -56,6 +58,7 @@ def _build_matrix_context(xg_home, xg_away):
         "p_home": p_home,
         "p_draw": p_draw,
         "p_away": p_away,
+        "markets": markets,
         "top_i": top_i,
         "top_j": top_j,
         "top_prob": top_p,
@@ -112,15 +115,17 @@ def forecast_detail(request, pk):
         value_form = ValueBetForm(request.POST)
         if value_form.is_valid():
             cd = value_form.cleaned_data
-            if cd.get("odd_home") is not None:
-                value_analysis = value_bet_analysis(
-                    forecast.prob_home_win,
-                    forecast.prob_draw,
-                    forecast.prob_away_win,
-                    cd["odd_home"],
-                    cd["odd_draw"],
-                    cd["odd_away"],
-                )
+            odds = {
+                "home": cd.get("odd_home"),
+                "draw": cd.get("odd_draw"),
+                "away": cd.get("odd_away"),
+                "1x": cd.get("odd_1x"),
+                "x2": cd.get("odd_x2"),
+                "12": cd.get("odd_12"),
+                "btts": cd.get("odd_btts"),
+            }
+            if any(o is not None for o in odds.values()):
+                value_analysis = value_bet_analysis(matrix_ctx["markets"], odds)
     else:
         value_form = ValueBetForm()
 

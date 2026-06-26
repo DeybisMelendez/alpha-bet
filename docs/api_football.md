@@ -32,10 +32,35 @@ HEADERS = {
 | Recurso | Acceso en Free |
 | --------- | --------- |
 | `league=X&season=Y` (histórico) | Solo temporadas **2022, 2023 y 2024**. La temporada actual (2025/2026) está bloqueada para todas las ligas. |
-| `date=YYYY-MM-DD` (fixture por fecha) | Solo **hoy ± 1 día** (ventana rolling de 3 días). Es la única forma de acceder a la temporada actual. |
+| `date=YYYY-MM-DD` (fixture por fecha) | Solo **hoy ± 1 día** (ventana rolling de 3 días). Es la única forma de acceder a la temporada actual. Fechas fuera de esta ventana devuelven 0 fixtures (no error). |
 | `last=N` | Prohibido en Free. |
 | Paises multi-palabra | Se filtran con guion: `Costa-Rica`, `El-Salvador`, `Dominican-Republic`. |
 | Rate limit | 100 req/día + ~10 req/min. |
+
+### Implicación crítica: huecos de historial irrecoverables
+
+Como el endpoint `date=` solo permite hoy ± 1 día, **cualquier partido que
+no se sincronice el día que se juega se pierde para siempre** en el plan
+Free. No hay forma de backfill. Esto genera huecos permanentes en el
+historial de selecciones nacionales cuando el cron `daily_update` no corre
+o se salta días.
+
+Ejemplo real (Copa del Mundo 2026): la fase de grupos (Jun 11-21) se
+perdió porque el cron no estaba instalado. Solo se capturaron los partidos
+desde Jun 22 en adelante (tras una sincronización manual).
+
+### Mitigación implementada
+
+1. **Cron diario obligatorio**: `daily_update` debe correr todos los días
+   para no perder partidos de la ventana actual (ver AGENTS.md).
+2. **Detección de staleness**: el motor de pronósticos detecta cuando la
+   forma reciente de un equipo está desactualizada (último partido >
+   `FORECAST_STALE_MONTHS` meses) y usa fallback Elo-only en lugar de
+   forma stale. Ver `forecasts/engine.py:is_form_stale`.
+3. **Mapeo de temporadas por confederación**: las eliminatorias
+   sudamericanas, asiáticas, CONCACAF y oceánicas del ciclo 2026 están
+   bajo `season=2026` (bloqueado en Free). Solo Euro (`season=2024`) y
+   África (`season=2023/2024`) fueron accesibles vía `league+season`.
 
 ---
 
@@ -183,9 +208,17 @@ El `code` se almacena como el `league_id` en formato string (ej. `"396"`), lo qu
 
 Se consultan `date=hoy-1`, `date=hoy` y `date=hoy+1` (3 peticiones). Cada respuesta trae partidos de todas las ligas; se filtra client-side a las ligas trackeadas en `API_FOOTBALL_LEAGUES`.
 
+El comando `sync_af_matches` acepta `--days-back` y `--days-ahead`
+(default: 1 cada uno) para ajustar la ventana. En plan Free valores >1
+devuelven 0 fixtures para fechas fuera de hoy ± 1.
+
 ### Backfill histórico (~75 req, 1 día)
 
 `load_af_history` recorre las ligas trackeadas × temporadas 2022-2024 con `league+season`. Idempotente: omite ligas/temporadas que ya tienen partidos cargados.
+
+**Importante**: no hay backfill para partidos de la temporada actual
+(2025+). Los partidos no sincronizados el día que se juegan se pierden
+permanentemente en plan Free. El cron diario es obligatorio.
 
 ### Rate limit
 
@@ -199,7 +232,33 @@ Se consultan `date=hoy-1`, `date=hoy` y `date=hoy+1` (3 peticiones). Cada respue
 
 | Fuente | Competiciones |
 | --------- | --------- |
-| football-data.org | Clubes: PL, PD, BL1, SA, FL1, CL, BSA, ELC, DED, PPL, CLI |
-| API-Football | Selecciones (todas), copas CONCACAF, ligas CA/NA |
+| football-data.org | Clubes: PL, PD, BL1, SA, FL1, CL, BSA, ELC, DED, PPL, CLI. Selecciones: WC (Copa del Mundo). |
+| API-Football | Selecciones (excepto WC), copas CONCACAF, ligas CA/NA |
 
 El campo `source` en `Competition`, `Team` y `Match` distingue el origen (`footballdata` / `apifootball`). La unicidad es por `(id_api, source)` porque los IDs de ambas APIs son independientes y pueden colisionar.
+
+### Migración de WC a football-data.org
+
+La Copa del Mundo se obtiene desde football-data.org (no desde
+API-Football) porque este ofrece cobertura total del torneo (104
+partidos) sin la restricción de ventana de 3 días del plan Free de
+API-Football. La migración se realizó con el comando
+`migrate_wc_to_footballdata`.
+
+Los partidos WC tienen `source=footballdata` pero los equipos mantienen
+`source=apifootball` (con su historial y Elo intactos). La función
+`ensure_team` en `api_client/sync.py` busca equipos por nombre en
+`source=apifootball` antes de crear nuevos con `source=footballdata`,
+evitando duplicados de selecciones nacionales.
+
+### Huecos de historial irrecoverables (eliminatorias 2026)
+
+Las eliminatorias sudamericanas, asiáticas, CONCACAF y oceánicas del
+ciclo 2026 están bajo `season=2026` en API-Football (bloqueado en Free).
+Solo Euro (`season=2024`) y África (`season=2023`) fueron accesibles vía
+`league+season`. Los partidos de eliminatorias 2023-2025 no se pueden
+recuperar en plan Free.
+
+La mitigación es la detección de staleness: si el último partido de un
+equipo es > `FORECAST_STALE_MONTHS` meses, el pronóstico usa fallback
+Elo-only (ver `forecasts/engine.py:is_form_stale`).

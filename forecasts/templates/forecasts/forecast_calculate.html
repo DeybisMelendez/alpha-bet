@@ -72,6 +72,52 @@
     </p>
 </section>
 
+<section class="mt-2">
+    <h3>Mercados de apuestas</h3>
+    <p class="text-muted small">
+        Probabilidades del modelo para mercados derivados de la matriz Poisson.
+    </p>
+    <div class="grid">
+        <article>
+            <h4>Doble oportunidad y sin empate</h4>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>1X (local o empate)</td>
+                        <td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>X2 (empate o visitante)</td>
+                        <td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>12 (sin empate)</td>
+                        <td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </article>
+        <article>
+            <h4>Ambos marcan (BTTS)</h4>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>Sí</td>
+                        <td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td>
+                    </tr>
+                    <tr>
+                        <td>No</td>
+                        <td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
+        </article>
+    </div>
+</section>
+
 <div class="grid mt-1">
     <section>
         <h3>Goles esperados (xG)</h3>

@@ -139,14 +139,17 @@ FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", "")
 FOOTBALL_DATA_API_BASE_URL = "https://api.football-data.org/v4"
 API_CACHE_TTL_MINUTES = 60
 
-# Popular competition codes for football-data.org (solo clubes)
+# Popular competition codes for football-data.org (clubes + WC)
 FOOTBALL_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "CL"]
 
-# All competitions available in the free tier (solo clubes; WC/EC migraron
-# a api-football como parte de las selecciones nacionales).
+# All competitions available in the free tier. WC se incluye aqui (no en
+# API_FOOTBALL_LEAGUES) porque football-data.org ofrece cobertura total
+# del torneo (104 partidos) sin la restriccion de ventana de 3 dias que
+# tiene api-football. EC (Euro) tambien esta disponible pero se mantiene
+# en api-football por ahora.
 FOOTBALL_COMPETITIONS_ALL = [
     "BSA", "ELC", "PL", "CL", "FL1", "BL1",
-    "SA", "DED", "PPL", "CLI", "PD",
+    "SA", "DED", "PPL", "CLI", "PD", "WC",
 ]
 
 
@@ -173,8 +176,8 @@ API_FOOTBALL_HISTORY_SEASONS = [2022, 2023, 2024]
 # alfa de football-data. elo_inicial se usa al crear LeagueStrength y al
 # asignar Elo a equipos nuevos (ver docs/elo.md).
 API_FOOTBALL_LEAGUES = [
-    # --- Selecciones (todas las confederaciones) ---
-    (1, "1", "World Cup", 1580),
+    # --- Selecciones (todas las confederaciones, excepto WC que se
+    #     obtiene desde football-data.org por mayor cobertura) ---
     (4, "4", "Euro Championship", 1580),
     (31, "31", "World Cup Qualification CONCACAF", 1550),
     (32, "32", "World Cup Qualification Europe", 1550),
@@ -225,7 +228,7 @@ ELO_NEW_TEAM_MATCHES = 20
 # Initial Elo calibration per league (based on relative league strength).
 # Used when creating LeagueStrength entries and assigning Elo to new teams.
 # Teams from stronger leagues start higher; the system self-adjusts over time.
-# Solo competiciones de clubes (football-data). Las selecciones y ligas de
+# Competiciones de clubes y WC (football-data). Las selecciones y ligas de
 # api-football se calibran via API_FOOTBALL_LEAGUES (initial_elo).
 ELO_LEAGUE_INITIAL = {
     "PL": 1600,   # Premier League - strongest
@@ -239,6 +242,7 @@ ELO_LEAGUE_INITIAL = {
     "PPL": 1450,  # Primeira Liga
     "BSA": 1500,  # Brasileirão
     "CLI": 1500,  # Copa Libertadores
+    "WC": 1580,   # FIFA World Cup (top national teams)
 }
 
 # Forecast system constants (see docs/pronostico.md)
@@ -253,6 +257,12 @@ DIXON_COLES_RHO = -0.13
 # historial suficiente (< FORECAST_MIN_HISTORY). El pronóstico fallback
 # se basa solo en la diferencia Elo multiplicada por este baseline.
 FORECAST_FALLBACK_BASELINE = 1.35
+# Umbral de antigüedad (meses) para considerar la forma reciente de un
+# equipo como "stale". Si el último partido finalizado de un equipo es
+# más antiguo que este umbral, el pronóstico usa fallback Elo-only en
+# lugar de la forma reciente desactualizada. Esto mitiga los huecos de
+# historial que genera el plan Free de API-Football (solo hoy ± 1 día).
+FORECAST_STALE_MONTHS = 6
 
 # Ventana de sincronización y pronóstico.
 # Solo se pronostican y sincronizan partidos programados dentro de esta
