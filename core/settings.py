@@ -130,54 +130,50 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 
-# Football-Data.org API
-# Fuente exclusiva para competiciones de clubes (ligas europeas top, copas
-# europeas y competiciones sudamericanas). Las selecciones nacionales se
-# obtienen desde api-football (ver mas abajo) para aprovechar su mayor
-# cobertura de confederaciones.
-FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY", "")
-FOOTBALL_DATA_API_BASE_URL = "https://api.football-data.org/v4"
-API_CACHE_TTL_MINUTES = 60
-
-# Popular competition codes for football-data.org (clubes + WC)
-FOOTBALL_COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "CL"]
-
-# All competitions available in the free tier. WC se incluye aqui (no en
-# API_FOOTBALL_LEAGUES) porque football-data.org ofrece cobertura total
-# del torneo (104 partidos) sin la restriccion de ventana de 3 dias que
-# tiene api-football. EC (Euro) tambien esta disponible pero se mantiene
-# en api-football por ahora.
-FOOTBALL_COMPETITIONS_ALL = [
-    "BSA", "ELC", "PL", "CL", "FL1", "BL1",
-    "SA", "DED", "PPL", "CLI", "PD", "WC",
-]
-
-
-# API-Football (api-sports.io v3)
-# Fuente para selecciones nacionales (todas las confederaciones), copas de
-# clubes CONCACAF y ligas domesticas de Centro y Norteamerica.
+# API-Football (api-sports.io v3) — única fuente de datos.
 #
-# Restricciones del plan Free (verificadas empiricamente):
-#   * Solo se pueden consultar temporadas 2022, 2023 y 2024 via league+season.
-#     La temporada actual (2025/2026) esta bloqueada para todas las ligas.
-#   * El endpoint por fecha (date=) solo permite hoy +/- 1 dia (ventana
-#     rolling de 3 dias). Es la unica forma de acceder a la temporada actual.
-#   * El parametro last=N esta prohibido.
-#   * Paises multi-palabra se filtran con guion (Costa-Rica, El-Salvador).
-#   * Limite: 100 req/dia + ~10 req/min.
+# Competiciones de clubes, selecciones nacionales y amistosos. La
+# cobertura se descubre dinámicamente vía /leagues (ver comando
+# sync_competitions). API_FOOTBALL_LEAGUES es solo un catálogo semilla
+# para calibrar el Elo inicial por liga; las ligas descubiertas que no
+# estén listadas usan ELO_DEFAULT.
+#
+# Plan Free: 100 req/día, 10/min, solo temporadas 2022-2024, y date=
+# restringido a hoy ± 1 día (ventana rolling de 3 días).
+# Plan Pro: 7,500 req/día, 300/min, histórico profundo (~2008+) y
+# temporada actual desbloqueada vía league+season y date= sin ventana.
+# Los valores de rate-limit/budget están preparados para plan Pro.
+API_CACHE_TTL_MINUTES = 60
 API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
-API_FOOTBALL_RATE_LIMIT_SECONDS = 6
-API_FOOTBALL_DAILY_BUDGET = 80
-API_FOOTBALL_HISTORY_SEASONS = [2022, 2023, 2024]
+API_FOOTBALL_RATE_LIMIT_SECONDS = 0.25
+API_FOOTBALL_DAILY_BUDGET = 7000
 
-# Competiciones trackeadas: (league_id, code, nombre, elo_inicial).
-# code se almacena como string (el league_id) y no colisiona con los codigos
-# alfa de football-data. elo_inicial se usa al crear LeagueStrength y al
-# asignar Elo a equipos nuevos (ver docs/elo.md).
+# Catálogo semilla de calibración Elo: (league_id, code, nombre, elo_inicial).
+# code se almacena como Competition.code (el league_id como string).
+# initial_elo se usa al crear LeagueStrength y al asignar Elo a equipos
+# nuevos (ver docs/elo.md). Las ligas descubiertas no listadas aquí usan
+# ELO_DEFAULT y se recalibran con recompute_league_strength tras el backfill.
 API_FOOTBALL_LEAGUES = [
-    # --- Selecciones (todas las confederaciones, excepto WC que se
-    #     obtiene desde football-data.org por mayor cobertura) ---
+    # --- Ligas europeas top ---
+    (39, "39", "Premier League", 1600),
+    (140, "140", "La Liga", 1570),
+    (78, "78", "Bundesliga", 1560),
+    (135, "135", "Serie A", 1550),
+    (61, "61", "Ligue 1", 1540),
+    (88, "88", "Eredivisie", 1450),
+    (94, "94", "Primeira Liga", 1450),
+    # --- Sudamérica ---
+    (13, "13", "Copa Libertadores", 1500),
+    (11, "11", "Copa Sudamericana", 1450),
+    (71, "71", "Brasileirão Serie A", 1490),
+    (128, "128", "Liga Profesional Argentina", 1480),
+    # --- Copas europeas ---
+    (2, "2", "UEFA Champions League", 1600),
+    (3, "3", "UEFA Europa League", 1500),
+    (848, "848", "UEFA Europa Conference League", 1450),
+    # --- Selecciones (todas las confederaciones) ---
+    (1, "1", "World Cup", 1580),
     (4, "4", "Euro Championship", 1580),
     (31, "31", "World Cup Qualification CONCACAF", 1550),
     (32, "32", "World Cup Qualification Europe", 1550),
@@ -192,11 +188,17 @@ API_FOOTBALL_LEAGUES = [
     (536, "536", "CONCACAF Nations League", 1500),
     (805, "805", "Copa Centroamericana", 1450),
     (10, "10", "Friendlies", 1500),
-    # --- Copas de clubes CONCACAF ---
+    # --- Norteamérica ---
+    (253, "253", "MLS", 1450),
+    (262, "262", "Liga MX", 1480),
+    (479, "479", "Canadian Premier League", 1380),
+    (257, "257", "US Open Cup", 1400),
+    (259, "259", "Canadian Championship", 1380),
+    # --- CONCACAF club cups ---
     (16, "16", "CONCACAF Champions Cup", 1450),
     (767, "767", "CONCACAF League", 1400),
     (1028, "1028", "CONCACAF Central American Cup", 1400),
-    # --- Ligas domesticas Centroamerica ---
+    # --- Centroamérica doméstica ---
     (396, "396", "Nicaragua Primera Division", 1300),
     (162, "162", "Costa Rica Primera Division", 1350),
     (339, "339", "Guatemala Liga Nacional", 1300),
@@ -204,46 +206,47 @@ API_FOOTBALL_LEAGUES = [
     (370, "370", "El Salvador Primera Division", 1280),
     (304, "304", "Liga Panamena de Futbol", 1300),
     (416, "416", "Belize Premier League", 1250),
-    # --- Ligas domesticas Norteamerica ---
-    (253, "253", "MLS", 1450),
-    (262, "262", "Liga MX", 1480),
-    (479, "479", "Canadian Premier League", 1380),
-    (257, "257", "US Open Cup", 1400),
-    (259, "259", "Canadian Championship", 1380),
+    # --- Inglaterra segunda división ---
+    (40, "40", "Championship", 1300),
+    
 ]
 
-# Diccionario derivado para lookup por code.
-API_FOOTBALL_LEAGUES_BY_CODE = {
-    code: {"id": lid, "name": name, "initial_elo": elo}
+# Diccionario derivado para lookup por id_api.
+API_FOOTBALL_LEAGUES_BY_ID = {
+    lid: {"id": lid, "name": name, "initial_elo": elo}
     for lid, code, name, elo in API_FOOTBALL_LEAGUES
 }
 
 # Elo system constants (see docs/elo.md)
 ELO_DEFAULT = 1500
 ELO_HOME_ADVANTAGE = 80
-ELO_K_DEFAULT = 20
-ELO_K_NEW = 40
+ELO_K_DEFAULT = 20       # Clubes profesionales (ligas top)
+ELO_K_INTERNATIONAL = 30  # Torneos internacionales (WC, WCQ, Euro, etc.)
+ELO_K_MINOR = 25         # Ligas menores
+ELO_K_NEW = 40           # Equipos nuevos (primeros partidos)
 ELO_NEW_TEAM_MATCHES = 20
-
-# Initial Elo calibration per league (based on relative league strength).
-# Used when creating LeagueStrength entries and assigning Elo to new teams.
-# Teams from stronger leagues start higher; the system self-adjusts over time.
-# Competiciones de clubes y WC (football-data). Las selecciones y ligas de
-# api-football se calibran via API_FOOTBALL_LEAGUES (initial_elo).
-ELO_LEAGUE_INITIAL = {
-    "PL": 1600,   # Premier League - strongest
-    "PD": 1570,   # La Liga
-    "BL1": 1560,  # Bundesliga
-    "SA": 1550,   # Serie A
-    "FL1": 1540,  # Ligue 1
-    "CL": 1600,   # Champions League (top European clubs)
-    "ELC": 1300,  # Championship (second tier England)
-    "DED": 1450,  # Eredivisie
-    "PPL": 1450,  # Primeira Liga
-    "BSA": 1500,  # Brasileirão
-    "CLI": 1500,  # Copa Libertadores
-    "WC": 1580,   # FIFA World Cup (top national teams)
-}
+# IDs de competiciones internacionales (selecciones) que usan K mayor.
+# Derivado del catálogo semilla; coincide con API-Football league IDs.
+ELO_INTERNATIONAL_LEAGUE_IDS = frozenset({
+    1,    # World Cup
+    4,    # Euro Championship
+    9,    # Copa America
+    7,    # Asian Cup
+    6,    # Africa Cup of Nations
+    22,   # CONCACAF Gold Cup
+    536,  # CONCACAF Nations League
+    805,  # Copa Centroamericana
+    31, 32, 29, 30, 33, 34,  # World Cup Qualification (todas las confederaciones)
+    10,   # Friendlies (selecciones)
+    2,    # UEFA Champions League
+    3,    # UEFA Europa League
+    848,  # UEFA Europa Conference League
+    13,   # Copa Libertadores
+    16,   # CONCACAF Champions Cup
+})
+# Umbral de Elo inicial del catálogo semilla para clasificar ligas menores.
+# Competiciones con initial_elo < este valor usan K=25 en lugar de K=20.
+ELO_MINOR_LEAGUE_THRESHOLD = 1400
 
 # Forecast system constants (see docs/pronostico.md)
 FORECAST_FORM_MATCHES = 5
@@ -258,11 +261,10 @@ DIXON_COLES_RHO = -0.13
 # se basa solo en la diferencia Elo multiplicada por este baseline.
 FORECAST_FALLBACK_BASELINE = 1.35
 # Umbral de antigüedad (meses) para considerar la forma reciente de un
-# equipo como "stale". Si el último partido finalizado de un equipo es
-# más antiguo que este umbral, el pronóstico usa fallback Elo-only en
-# lugar de la forma reciente desactualizada. Esto mitiga los huecos de
-# historial que genera el plan Free de API-Football (solo hoy ± 1 día).
-FORECAST_STALE_MONTHS = 6
+# equipo como "stale". Safety net alto (24m): con plan Pro no hay huecos
+# irrecoverables, pero protege ante resincronizaciones o equipos
+# inactivos largos.
+FORECAST_STALE_MONTHS = 24
 
 # Ventana de sincronización y pronóstico.
 # Solo se pronostican y sincronizan partidos programados dentro de esta

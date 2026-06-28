@@ -20,7 +20,7 @@ class MatchAdmin(admin.ModelAdmin):
         "elo_processed",
         "competition",
         "season",
-        "stage",
+        "round",
     )
     search_fields = (
         "home_team__name",
@@ -42,7 +42,7 @@ class MatchAdmin(admin.ModelAdmin):
             "fields": ("home_team", "away_team", "home_goals", "away_goals"),
         }),
         ("Detalle", {
-            "fields": ("matchday", "stage", "group", "status"),
+            "fields": ("round", "status", "status_short"),
         }),
         ("Elo", {
             "fields": (
@@ -55,6 +55,7 @@ class MatchAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "id_api",
+        "status_short",
         "elo_processed",
         "home_elo_before",
         "away_elo_before",

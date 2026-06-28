@@ -15,23 +15,24 @@ class Match(models.Model):
         CANCELLED = "CANCELLED", "Cancelado"
         AWARDED = "AWARDED", "Adjudicado"
 
-    class Source(models.TextChoices):
-        FOOTBALLDATA = "footballdata", "football-data.org"
-        APIFOOTBALL = "apifootball", "API-Football"
-
-    id_api = models.PositiveIntegerField(db_index=True)
-    source = models.CharField(
-        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
-    )
+    id_api = models.PositiveIntegerField(unique=True, db_index=True)
     competition = models.ForeignKey(
         Competition, on_delete=models.CASCADE, related_name="matches"
     )
     season = models.CharField(max_length=20, blank=True, default="")
-    matchday = models.PositiveIntegerField(null=True, blank=True)
-    stage = models.CharField(max_length=50, blank=True, default="")
-    group = models.CharField(max_length=50, blank=True, default="")
+    round = models.CharField(
+        max_length=50, blank=True, default="",
+        help_text="Ronda/jornada de API-Football (league.round).",
+    )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.SCHEDULED
+    )
+    # Status original de API-Football (FT, AET, PEN, NS, etc.). Se conserva
+    # aparte del status normalizado para que el motor de Elo pueda distinguir
+    # partidos decididos por penales (PEN) y tratarlos como empate.
+    status_short = models.CharField(
+        max_length=10, blank=True, default="",
+        help_text="Status corto de API-Football (FT, AET, PEN, ...).",
     )
     utc_date = models.DateTimeField()
 
@@ -52,11 +53,11 @@ class Match(models.Model):
     away_elo_after = models.FloatField(null=True, blank=True)
 
     class Meta:
-        unique_together = ("id_api", "source")
         ordering = ["-utc_date"]
         indexes = [
             models.Index(fields=["status", "utc_date"]),
             models.Index(fields=["elo_processed"]),
+            models.Index(fields=["competition", "season"]),
         ]
         verbose_name = "Partido"
         verbose_name_plural = "Partidos"

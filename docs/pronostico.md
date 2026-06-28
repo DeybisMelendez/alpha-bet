@@ -1,267 +1,400 @@
-# Sistema de Pronóstico de Fútbol basado en Elo, Forma Reciente y Poisson
+# pronostico_v2.md
+
+# Sistema de Pronóstico de Fútbol v2
 
 ## Objetivo
 
-Estimar las probabilidades de victoria local, empate y victoria visitante utilizando:
+El objetivo del sistema es estimar la probabilidad de los diferentes mercados de apuestas (1X2, Over/Under, Ambos Marcan, Marcador Correcto, etc.) utilizando un modelo estadístico basado en:
 
-* Elo único por equipo.
-* Forma reciente (últimos 5 partidos).
-* Ajuste de goles según la fuerza Elo de los rivales enfrentados.
-* Ajuste según la diferencia Elo del próximo rival.
-* Distribución de Poisson para calcular probabilidades.
+* Elo como medida de fuerza.
+* Forma reciente.
+* Estadísticas ofensivas y defensivas.
+* Ventaja de localía.
+* Distribución de Poisson.
+* Corrección Dixon-Coles.
+* Comparación con cuotas para detectar apuestas de valor.
 
----
-
-# Paso 1: Obtener el Elo actual
-
-Para cada partido obtener:
-
-* Elo del equipo local.
-* Elo del equipo visitante.
-
-Ejemplo:
-
-* Equipo A: Elo 1800
-* Equipo B: Elo 1700
-
-Diferencia Elo:
-
-D = 1800 - 1700 = 100
-
-Si existe ventaja de localía:
-
-D = 1800 + 80 - 1700 = 180
-
-Donde 80 representa la ventaja histórica de jugar en casa.
+El sistema busca producir probabilidades calibradas y consistentes, evitando depender únicamente de resultados recientes o intuiciones.
 
 ---
 
-# Paso 2: Analizar los últimos 5 partidos
+# Arquitectura general
 
-Para cada equipo obtener:
+El flujo del sistema es el siguiente:
 
-* Goles anotados.
-* Goles recibidos.
-* Elo del rival enfrentado.
-
-Ejemplo para Equipo A (Elo 1800):
-
-| Rival Elo | Resultado |
-| --------- | --------- |
-| 1750      | 2-1       |
-| 1850      | 1-1       |
-| 1600      | 3-0       |
-| 1700      | 2-0       |
-| 1900      | 1-2       |
+```text
+API-Football
+        │
+        ▼
+Importación de partidos
+        │
+        ▼
+Actualización Elo
+        │
+        ▼
+Actualización estadísticas
+        │
+        ▼
+Cálculo de fortalezas
+        │
+        ▼
+Estimación λ (goles esperados)
+        │
+        ▼
+Corrección Dixon-Coles
+        │
+        ▼
+Distribución Poisson
+        │
+        ▼
+Mercados de apuestas
+        │
+        ▼
+Expected Value
+        │
+        ▼
+Recomendación final
+```
 
 ---
 
-# Paso 3: Ajustar los goles según la dificultad del rival
+# Datos necesarios
+
+Para cada partido histórico se almacenan:
+
+* Fecha
+* Competición
+* Temporada
+* Equipo local
+* Equipo visitante
+* Goles
+* Elo antes del partido
+* Local o visitante
+* Estado del partido
+* Sede neutral
+
+No es recomendable utilizar únicamente los marcadores; siempre deben conservarse los datos que permitan reconstruir el contexto del encuentro.
+
+---
+
+# Modelo de fuerza
+
+El sistema Elo representa únicamente la calidad relativa de los equipos.
+
+El Elo **no calcula goles**.
+
+Su función es responder:
+
+> ¿Qué tan fuerte es este equipo frente a otro?
+
+Esta información será utilizada posteriormente para ajustar la estimación de goles esperados.
+
+---
+
+# Forma reciente
+
+La forma reciente representa el rendimiento actual del equipo.
+
+Se recomienda utilizar dos ventanas:
+
+* Forma corta: últimos 5 partidos.
+* Forma larga: últimos 20 partidos.
+
+La combinación recomendada es:
+
+```text
+Forma =
+
+0.65 × FormaLarga
+
++
+
+0.35 × FormaCorta
+```
+
+De esta forma el modelo reacciona a cambios recientes sin perder estabilidad.
+
+---
+
+# Ponderación temporal
+
+Los partidos recientes contienen más información que los antiguos.
+
+Cada partido recibe un peso:
+
+```text
+Peso = e^(-Dias/180)
+```
+
+Esto hace que un partido disputado hace un año tenga mucha menos influencia que uno jugado la semana pasada.
+
+---
+
+# Estadísticas ofensivas
+
+Para cada equipo se calculan por separado:
+
+* Ataque como local.
+* Ataque como visitante.
+
+Cada estadística corresponde al promedio ponderado de goles anotados.
+
+No deben mezclarse ambas condiciones.
+
+---
+
+# Estadísticas defensivas
+
+Igualmente se mantienen:
+
+* Defensa local.
+* Defensa visitante.
+
+Estas estadísticas corresponden al promedio ponderado de goles recibidos.
+
+---
+
+# Corrección por fuerza del rival
 
 No todos los goles tienen el mismo valor.
 
-Marcar 2 goles a un rival Elo 1900 es más difícil que marcar 2 goles a un rival Elo 1500.
+Marcar dos goles a un rival muy fuerte aporta más información que marcar dos goles a un rival muy débil.
 
-Se calcula un factor:
-
-Factor Rival = Elo Rival / Elo Equipo
-
-Importante: se utiliza el Elo con el que cada equipo **entró al partido** (elo_before), tanto del propio equipo como del rival. Usar el Elo posterior (elo_after) filtraría el propio resultado en el factor de dificultad: ganar a un rival hace que su rating baje y que la victoria parezca más fácil de lo que fue. Por eso se fija la fuerza justo antes del partido.
-
-Ejemplo para Equipo A (Elo 1800 al entrar):
-
-| Rival Elo (al entrar) | Resultado |
-| --------- | --------- |
-| 1750      | 2-1       |
-| 1850      | 1-1       |
-| 1600      | 3-0       |
-| 1700      | 2-0       |
-| 1900      | 1-2       |
+El ajuste debe realizarse utilizando el Elo previo del rival, evitando utilizar el Elo posterior para no introducir sesgos.
 
 ---
 
-# Paso 4: Calcular la forma ofensiva y defensiva
+# Estimación de goles esperados
 
-Promediar los goles ajustados de los últimos 5 partidos.
+Los goles esperados (λ) combinan:
+
+* Fortaleza ofensiva del equipo.
+* Fortaleza defensiva del rival.
+* Forma reciente.
+* Elo.
+* Ventaja de localía.
+
+Una aproximación recomendada es utilizar el promedio geométrico:
+
+```text
+λLocal
+
+=
+
+√(AtaqueLocal × DefensaVisitante)
+
+×
+
+FactorElo
+
+×
+
+FactorLocalía
+```
+
+y de forma equivalente para el visitante.
+
+El promedio geométrico representa mejor la naturaleza multiplicativa del modelo Poisson que el promedio aritmético.
+
+---
+
+# Ajuste mediante Elo
+
+El Elo modifica ligeramente los λ obtenidos.
+
+No se recomienda un ajuste lineal.
+
+Es preferible utilizar una función suave que evite exagerar las diferencias entre equipos.
+
+El objetivo del Elo es desplazar ligeramente la expectativa de goles sin dominar completamente el modelo.
+
+---
+
+# Corrección Dixon-Coles
+
+La Poisson independiente sobreestima algunos marcadores frecuentes:
+
+* 0-0
+* 1-0
+* 0-1
+* 1-1
+
+Para corregir este comportamiento se aplica el modelo Dixon-Coles mediante un parámetro de correlación (ρ), que ajusta las probabilidades de los resultados con pocos goles.
+
+Esta corrección mejora especialmente los mercados:
+
+* 1X2
+* Empate
+* Correct Score
+
+---
+
+# Distribución de Poisson
+
+Una vez estimados los λ de ambos equipos se calcula:
+
+```text
+P(k)
+
+=
+
+e^(-λ)
+
+×
+
+λ^k
+
+/
+
+k!
+```
+
+para cada cantidad de goles.
+
+Normalmente basta con calcular de 0 a 6 goles, ya que las probabilidades superiores son muy pequeñas.
+
+---
+
+# Matriz de resultados
+
+Las probabilidades individuales de goles se combinan para formar la matriz completa de marcadores.
 
 Ejemplo:
 
-Goles anotados ajustados:
+```text
+P(2-1)
 
-2.12
-1.05
-2.67
-1.89
-1.06
+=
 
-Promedio:
+P(Local=2)
 
-Ataque Ajustado = 1.76
+×
 
----
+P(Visitante=1)
+```
 
-Goles recibidos ajustados:
-
-1.03
-0.95
-0.00
-0.00
-2.11
-
-Promedio:
-
-Defensa Ajustada = 0.82
+La suma de todas las celdas debe ser 100%.
 
 ---
 
-# Paso 5: Ajustar según el rival actual
+# Mercados derivados
 
-Ahora se considera la diferencia Elo del partido que se va a pronosticar.
+A partir de la matriz pueden calcularse automáticamente:
 
-Equipo A Elo 1800
+* Victoria local.
+* Empate.
+* Victoria visitante.
+* Doble oportunidad.
+* Ambos marcan.
+* Over/Under 0.5.
+* Over/Under 1.5.
+* Over/Under 2.5.
+* Over/Under 3.5.
+* Over/Under 4.5.
+* Marcador correcto.
+* Draw No Bet.
+* Asian Handicap (básico).
 
-Equipo B Elo 1700
-
-Diferencia Elo:
-
-D = 100
-
-Factor Pronóstico:
-
-Factor = 1 + (D / 1000)
-
-Factor = 1.10
-
----
-
-Goles esperados del Equipo A:
-
-xG_A = Ataque Ajustado × Factor
-
-xG_A = 1.76 × 1.10
-
-xG_A = 1.94
+Todos los mercados deben derivarse de la misma matriz de probabilidades para garantizar consistencia.
 
 ---
 
-Para el visitante:
+# Comparación con cuotas
 
-Factor = 1 - (D / 1000)
+Las probabilidades del modelo se comparan con las probabilidades implícitas de las casas de apuestas.
 
-Factor = 0.90
+```text
+Probabilidad Implícita = 1 / Cuota
+```
 
-xG_B = Ataque Ajustado_B × 0.90
-
-Supongamos:
-
-Ataque Ajustado_B = 1.30
-
-xG_B = 1.17
+Si la probabilidad estimada por el modelo es superior a la implícita, existe una posible apuesta de valor.
 
 ---
 
-# Paso 6: Aplicar la distribución de Poisson
+# Expected Value (EV)
 
-Con los goles esperados obtenidos:
+El valor esperado se calcula mediante:
 
-Local:
+```text
+EV
 
-λ = 1.94
+=
 
-Visitante:
+(ProbabilidadModelo × Cuota)
 
-λ = 1.17
+−
 
-La probabilidad de marcar k goles es:
+1
+```
 
-P(k) = (e^(-λ) × λ^k) / k!
+Solo se recomienda apostar cuando:
 
----
-
-Ejemplo para el local:
-
-0 goles = 14.4%
-
-1 gol = 27.9%
-
-2 goles = 27.1%
-
-3 goles = 17.5%
-
-4 goles = 8.5%
+* EV > 0
+* El margen sea suficiente para compensar la incertidumbre del modelo.
 
 ---
 
-Ejemplo para el visitante:
+# Gestión del bankroll
 
-0 goles = 31.0%
+El tamaño de la apuesta debe depender del valor esperado.
 
-1 gol = 36.3%
+Se recomienda utilizar Kelly fraccional (25% o 50%) en lugar del Kelly completo para reducir la volatilidad.
 
-2 goles = 21.2%
-
-3 goles = 8.3%
-
-4 goles = 2.4%
+Nunca se debe apostar una cantidad fija ignorando la ventaja estimada.
 
 ---
 
-# Paso 7: Construir la matriz de resultados
+# Validación del modelo
 
-Multiplicar las probabilidades de ambos equipos.
+El sistema debe evaluarse continuamente utilizando datos históricos.
 
-Ejemplo:
+Las métricas recomendadas son:
 
-P(2-1) = P(Local=2) × P(Visitante=1)
+* Log Loss.
+* Brier Score.
+* Calibration Curve.
+* ROI.
+* Yield.
+* Closing Line Value (CLV).
 
-P(2-1) = 0.271 × 0.363
-
-P(2-1) = 9.8%
-
----
-
-Repetir para todas las combinaciones:
-
-0-0
-0-1
-0-2
-...
-5-5
+Un modelo rentable debe estar bien calibrado además de generar beneficios.
 
 ---
 
-# Paso 8: Obtener las probabilidades 1X2
+# Principios fundamentales
 
-Victoria Local:
+El sistema sigue los siguientes principios:
 
-Sumar todas las combinaciones donde:
-
-Goles Local > Goles Visitante
-
----
-
-Empate:
-
-Sumar todas las combinaciones donde:
-
-Goles Local = Goles Visitante
+1. Elo mide fuerza, no goles.
+2. Los goles recientes deben ponderarse por el tiempo.
+3. La localía modifica el rendimiento.
+4. Ataque y defensa deben calcularse por separado.
+5. Los goles esperados deben combinar múltiples variables.
+6. Todas las probabilidades deben derivarse de un único modelo matemático.
+7. Las apuestas solo deben realizarse cuando exista valor esperado positivo.
 
 ---
 
-Victoria Visitante:
+# Posibles mejoras futuras
 
-Sumar todas las combinaciones donde:
+La arquitectura ha sido diseñada para permitir la incorporación de nuevas fuentes de información sin modificar el núcleo del modelo.
 
-Goles Local < Goles Visitante
+Las futuras mejoras pueden incluir:
+
+* xG y xGA.
+* Disparos y tiros a puerta.
+* Lesiones y sanciones.
+* Descanso entre partidos.
+* Cambios de entrenador.
+* Importancia del encuentro.
+* Condiciones meteorológicas.
+* Modelos bayesianos.
+* Machine Learning para la estimación de λ.
+
+Estas variables pueden mejorar progresivamente la precisión sin alterar la estructura general del sistema.
 
 ---
 
-Resultado final:
+# Conclusión
 
-Victoria Local: 54%
-
-Empate: 24%
-
-Victoria Visitante: 22%
-
-Estas probabilidades pueden compararse posteriormente con las cuotas ofrecidas por las casas de apuestas para identificar posibles apuestas de valor.
+El modelo propuesto separa claramente la **evaluación de la fuerza de los equipos (Elo)** de la **estimación de goles esperados**, combinando ambos mediante un enfoque estadístico sólido. La utilización de ponderación temporal, estadísticas diferenciadas por localía, distribución de Poisson, corrección Dixon-Coles y análisis de valor esperado proporciona una base robusta, interpretable y escalable para desarrollar una plataforma de pronósticos deportivos capaz de evolucionar con nuevas fuentes de datos y técnicas de modelado.

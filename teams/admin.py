@@ -5,20 +5,20 @@ from teams.models import Competition, Team, TeamCompetition
 
 @admin.register(Competition)
 class CompetitionAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "area_name", "plan", "current_season", "team_count")
+    list_display = ("code", "name", "area_name", "league_type", "current_season", "team_count")
     list_display_links = ("code", "name")
-    list_filter = ("plan", "area_name", "current_season")
+    list_filter = ("league_type", "area_name", "current_season")
     search_fields = ("name", "code", "area_name", "area_code")
     ordering = ("name",)
     fieldsets = (
         (None, {
-            "fields": ("id_api", "code", "name"),
+            "fields": ("id_api", "code", "name", "logo"),
         }),
         ("Ubicación", {
             "fields": ("area_name", "area_code"),
         }),
         ("Configuración", {
-            "fields": ("plan", "current_season"),
+            "fields": ("league_type", "current_season"),
         }),
     )
     readonly_fields = ("id_api",)
@@ -43,14 +43,14 @@ class TeamAdmin(admin.ModelAdmin):
     list_display = ("name", "tla", "elo", "matches_played", "founded", "has_crest")
     list_display_links = ("name", "tla")
     list_filter = ("founded", "competition_links__competition", "competition_links__season")
-    search_fields = ("name", "short_name", "tla", "venue")
+    search_fields = ("name", "tla", "venue")
     ordering = ("-elo", "name")
     fieldsets = (
         (None, {
-            "fields": ("id_api", "name", "short_name", "tla", "crest_url"),
+            "fields": ("id_api", "name", "tla", "crest_url"),
         }),
         ("Información", {
-            "fields": ("founded", "venue", "website"),
+            "fields": ("founded", "venue", "country"),
         }),
         ("Elo", {
             "fields": ("elo", "matches_played"),

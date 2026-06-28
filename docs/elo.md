@@ -1,373 +1,284 @@
-# Sistema Elo para Fútbol considerando Resultado y Diferencia de Goles
+# Sistema Elo v2 para Pronósticos de Fútbol
 
 ## Objetivo
 
-Actualizar la puntuación Elo de cada equipo después de un partido considerando:
+El propósito de este sistema Elo es medir la **fuerza real de cada equipo** mediante un rating dinámico que evoluciona después de cada partido.
 
-* Resultado final (victoria, empate o derrota).
-* Diferencia de goles.
-* Fuerza del rival.
-* Ventaja de localía.
-
-De esta manera, una victoria por 4-0 tendrá más impacto que una victoria por 1-0, pero sin permitir que las goleadas distorsionen excesivamente el sistema.
+Este Elo **no calcula goles esperados** ni sustituye al modelo de Poisson. Su única función es representar la calidad relativa de los equipos y servir como una de las variables principales del modelo de pronóstico.
 
 ---
 
-# Paso 1: Obtener el Elo previo de ambos equipos
+# Filosofía del sistema
 
-Antes del partido:
+El rating Elo debe responder una sola pregunta:
 
-* Equipo A: Elo 1800
-* Equipo B: Elo 1700
+> ¿Qué tan fuerte es este equipo respecto a los demás?
 
-Si existe ventaja de localía:
+Toda la información referente a goles esperados, ataques o defensas será calculada por el modelo de pronóstico y no debe incorporarse directamente al Elo.
 
-Local Elo Ajustado = 1800 + 80 = 1880
-
-Visitante Elo Ajustado = 1700
+Separar ambos modelos evita duplicar información y mejora la estabilidad de las predicciones.
 
 ---
 
-# Paso 2: Calcular la probabilidad esperada
+# Variables necesarias
 
-Utilizar la fórmula Elo tradicional:
+Cada partido debe almacenar:
 
-E = 1 / (1 + 10^(-D/400))
-
-Donde:
-
-D = EloA - EloB
-
-Ejemplo:
-
-D = 1880 - 1700 = 180
-
-Entonces:
-
-E_A = 1 / (1 + 10^(-180/400))
-
-E_A = 0.738
-
-E_B = 1 - E_A
-
-E_B = 0.262
-
-Interpretación:
-
-* Equipo A tenía un 73.8% de probabilidad de ganar.
-* Equipo B tenía un 26.2% de probabilidad de ganar.
+* Fecha
+* Competición
+* Temporada
+* Equipo local
+* Equipo visitante
+* Elo antes del partido
+* Elo después del partido
+* Goles locales
+* Goles visitantes
+* Resultado
+* Estado del partido (FT, AET, PEN, etc.)
+* Sede neutral (Sí/No)
 
 ---
 
-# Paso 3: Convertir el resultado a una puntuación
+# Elo inicial
 
-Resultado del partido:
+Todos los equipos nuevos comienzan con el Elo promedio de su competición.
 
-Victoria = 1.0
+Si una competición aún no posee historial suficiente:
+
+```text
+Elo inicial = 1500
+```
+
+Cuando se agregan nuevos equipos a una liga existente, utilizar el promedio Elo de esa liga produce una convergencia más rápida que asignar siempre 1500.
+
+---
+
+# Ventaja de localía
+
+La localía modifica únicamente el cálculo de la probabilidad esperada.
+
+Valores recomendados:
+
+* Liga nacional: +70 a +90 Elo
+* Selecciones nacionales: +50 a +80 Elo
+* Mundial en sede neutral: 0 Elo
+
+Este valor debe almacenarse por competición para permitir ajustes futuros.
+
+---
+
+# Probabilidad esperada
+
+La probabilidad de victoria se obtiene mediante la fórmula clásica de Elo.
+
+```text
+E = 1 / (1 + 10^(-(ΔElo)/400))
+```
+
+donde
+
+```text
+ΔElo = Elo_Local + Localía − Elo_Visitante
+```
+
+La probabilidad del visitante es:
+
+```text
+1 − E
+```
+
+---
+
+# Resultado del partido
+
+Para actualizar el Elo:
+
+Victoria = 1
 
 Empate = 0.5
 
-Derrota = 0.0
+Derrota = 0
 
-Ejemplos:
-
-Victoria local:
-
-S_A = 1.0
-
-S_B = 0.0
+Los partidos decididos por penales se consideran empate, ya que los penales representan un mecanismo de desempate y no una medida fiable de superioridad futbolística.
 
 ---
 
-Empate:
+# Diferencia de goles
 
-S_A = 0.5
+La diferencia de goles debe influir en el cambio Elo, pero de forma moderada.
 
-S_B = 0.5
+Se utiliza:
 
----
+```text
+G = ln(GolesDiferencia + 1)
+```
 
-Victoria visitante:
+Ejemplos
 
-S_A = 0.0
+| Diferencia | Multiplicador |
+| ---------- | ------------: |
+| 1          |          0.69 |
+| 2          |          1.10 |
+| 3          |          1.39 |
+| 4          |          1.61 |
+| 5          |          1.79 |
 
-S_B = 1.0
-
----
-
-# Paso 4: Calcular la diferencia de goles
-
-Ejemplo:
-
-Equipo A 3-0 Equipo B
-
-Diferencia:
-
-GD = 3
+El crecimiento logarítmico evita que las goleadas distorsionen el rating.
 
 ---
 
-Otro ejemplo:
+# Ajuste por fuerza del rival
 
-Equipo A 2-1 Equipo B
+No es igual golear a un rival fuerte que a uno débil.
 
-GD = 1
+El multiplicador recomendado es:
 
----
+```text
+M = G × (2.2 / (0.001 × ΔElo + 2.2))
+```
 
-# Paso 5: Calcular un multiplicador por diferencia de goles
-
-La idea es premiar las victorias amplias, pero sin exagerarlas.
-
-Una fórmula ampliamente utilizada es:
-
-G = ln(GD + 1)
-
-Donde:
-
-ln es el logaritmo natural.
+Este ajuste incrementa la recompensa cuando un equipo vence claramente a un rival superior y reduce el impacto cuando derrota a un rival claramente inferior.
 
 ---
 
-Ejemplos:
+# Factor K
 
-Victoria por 1 gol:
+El factor K controla la velocidad de actualización.
 
-G = ln(2)
+Valores recomendados:
 
-G = 0.69
+| Competición      |  K |
+| ---------------- | -: |
+| Mundial          | 30 |
+| Eliminatorias    | 25 |
+| Primera división | 20 |
+| Copas nacionales | 20 |
+| Amistosos        | 15 |
 
----
+Equipos nuevos:
 
-Victoria por 2 goles:
+```text
+K = 40
+```
 
-G = ln(3)
-
-G = 1.10
-
----
-
-Victoria por 3 goles:
-
-G = ln(4)
-
-G = 1.39
+durante sus primeros 20 partidos.
 
 ---
 
-Victoria por 5 goles:
+# Actualización Elo
 
-G = ln(6)
+La actualización final es:
 
-G = 1.79
+```text
+Nuevo Elo = Elo Actual + K × M × (Resultado − Probabilidad Esperada)
+```
 
----
+Esta fórmula garantiza que:
 
-Obsérvese que una goleada aumenta el ajuste, pero cada gol adicional aporta menos que el anterior.
-
----
-
-# Paso 6: Ajustar el multiplicador según la diferencia Elo
-
-No es igual golear a un rival débil que golear a un rival fuerte.
-
-Utilizar:
-
-M = G × (2.2 / ((ΔElo × 0.001) + 2.2))
-
-Donde:
-
-ΔElo = Elo ganador - Elo perdedor
+* las sorpresas generen cambios importantes;
+* las victorias esperadas produzcan cambios pequeños;
+* el sistema permanezca estable a largo plazo.
 
 ---
 
-Ejemplo:
+# Regresión entre temporadas
 
-Equipo A Elo 1800
+Entre temporadas es recomendable acercar parcialmente el Elo a la media.
 
-Equipo B Elo 1700
+```text
+EloNuevo
 
-ΔElo = 100
+=
 
-G = 1.39
+0.90 × EloAnterior
 
-M = 1.39 × (2.2 / 2.3)
++
 
-M = 1.33
+0.10 × EloPromedioLiga
+```
 
----
-
-Ejemplo sorpresa:
-
-Equipo Elo 1700 vence 3-0 a equipo Elo 1900
-
-ΔElo = -200
-
-G = 1.39
-
-M = 1.39 × (2.2 / 2.0)
-
-M = 1.53
-
-La sorpresa recibe un ajuste mayor.
+Esto refleja cambios de plantilla, entrenadores y rendimiento sin perder completamente el historial.
 
 ---
 
-# Paso 7: Elegir el factor K
+# Nuevos equipos
 
-K determina qué tan rápido cambia el Elo.
+Cuando aparece un equipo sin historial:
 
-Valores habituales:
-
-| Competición             | K  |
-| ----------------------- | -- |
-| Clubes profesionales    | 20 |
-| Ligas menores           | 25 |
-| Torneos internacionales | 30 |
-
-Para un sistema de pronósticos:
-
-K = 20 suele funcionar bien.
+1. Asignar el Elo promedio de la competición.
+2. Utilizar K = 40 durante los primeros partidos.
+3. Reducir gradualmente hasta el K normal.
 
 ---
 
-# Paso 8: Calcular el cambio Elo
+# Competiciones internacionales
 
-Fórmula:
+Cuando participan equipos de distintas ligas:
 
-ΔRating = K × M × (S - E)
-
----
-
-Ejemplo:
-
-K = 20
-
-M = 1.33
-
-S = 1
-
-E = 0.738
-
-ΔRating = 20 × 1.33 × (1 - 0.738)
-
-ΔRating = 6.97
+* mantener un único Elo global;
+* no crear ratings separados por liga;
+* las competiciones internacionales conectan naturalmente los distintos niveles competitivos.
 
 ---
 
-Equipo A:
+# Casos especiales
 
-+7 Elo
+### Partido suspendido
 
----
+No actualizar Elo.
 
-Equipo B:
+### Victoria administrativa
 
--7 Elo
+No actualizar Elo salvo que el partido se haya disputado.
 
----
+### Penales
 
-# Paso 9: Actualizar las puntuaciones
+Resultado = Empate.
 
-Nuevo Elo:
+### Tiempo extra
 
-Elo Nuevo = Elo Actual + ΔRating
-
----
-
-Equipo A:
-
-1800 + 7
-
-1807
+Los goles del tiempo extra forman parte del resultado oficial y deben utilizarse.
 
 ---
 
-Equipo B:
+# Validación
 
-1700 - 7
+Un buen sistema Elo debe cumplir:
 
-1693
-
----
-
-# Ejemplo completo
-
-Antes del partido:
-
-* Equipo A: 1800
-* Equipo B: 1700
-
-Resultado:
-
-3-0
+* los equipos fuertes permanecen estables;
+* los equipos en crecimiento ascienden rápidamente;
+* las probabilidades implícitas están bien calibradas;
+* mejora la precisión respecto a utilizar únicamente resultados recientes.
 
 ---
 
-Probabilidad esperada:
+# Recomendaciones de implementación
 
-E_A = 0.738
+Guardar siempre:
 
----
+* elo_before
+* elo_after
 
-Resultado:
+Nunca recalcular Elo desde cero durante una consulta.
 
-S_A = 1
-
----
-
-Diferencia de goles:
-
-GD = 3
+Actualizar el rating inmediatamente después de importar cada partido para mantener la consistencia histórica.
 
 ---
 
-Multiplicador:
+# Papel del Elo dentro de la plataforma
 
-G = ln(4) = 1.39
+El Elo no genera apuestas.
 
-M = 1.33
+El Elo proporciona una medida objetiva de la fuerza de los equipos.
 
----
+Posteriormente, el modelo de pronóstico utilizará esta información junto con:
 
-Cambio Elo:
+* forma reciente,
+* estadísticas ofensivas,
+* estadísticas defensivas,
+* ventaja de localía,
+* contexto del partido,
 
-Δ = +7
+para estimar los goles esperados mediante un modelo de Poisson corregido.
 
----
-
-Nuevos ratings:
-
-* Equipo A = 1807
-* Equipo B = 1693
-
----
-
-# Ventajas de este sistema
-
-* Premia victorias contundentes.
-* Castiga derrotas amplias.
-* Reduce el impacto de goleadas contra equipos débiles.
-* Premia sorpresas contra rivales fuertes.
-* Mantiene la estabilidad a largo plazo.
-* Es muy similar a las variantes Elo utilizadas en sistemas reconocidos de fútbol como los inspirados en Club Elo.
-
-Por esta razón, suele ser una excelente base para generar posteriormente probabilidades de partidos y modelos Poisson.
-
----
-
-# Partidos decididos por penales
-
-Cuando un partido se decide en tanda de penales (status `PEN` en API-Football), el resultado para Elo es **empate** (S=0.5) independientemente del marcador de penales.
-
-Los goles usados son los de `score.fulltime` (90 minutos + extra time). Los penales no reflejan fuerza relativa, solo desempate, por lo que no deben influir en el rating.
-
----
-
-# Calculo elo inicial
-
-- Calcular el Elo promedio de cada liga (En caso de no tener el valor inicial sería 1500)
-- Asignar ese promedio a los nuevos equipos.
-- Utilizar K = 40 durante los primeros 20 partidos.
-- Reducir posteriormente a K = 20.
-- Mantener una tabla de fuerza de ligas para facilitar la incorporación de nuevas competiciones.
+De esta forma, el sistema mantiene separados el **modelo de fuerza** (Elo) y el **modelo de generación de goles**, logrando una arquitectura modular, interpretable y más precisa para la identificación de apuestas de valor.

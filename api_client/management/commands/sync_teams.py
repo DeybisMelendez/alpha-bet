@@ -1,72 +1,79 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from api_client.client import FootballDataClient
-from elo.engine import assign_initial_elo
-from teams.models import Competition, Team, TeamCompetition
+from api_client.client import ApiFootballClient
+from api_client.sync import ensure_team
+from teams.models import Competition, TeamCompetition
 
 
 class Command(BaseCommand):
-    help = "Sincroniza equipos de una competición desde football-data.org"
+    help = (
+        "Sincroniza equipos de una liga/temporada desde API-Football. "
+        "Requiere plan Pro para temporadas fuera de 2022-2024."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--competition",
+            "--league",
             required=True,
-            help="Código de competición (PL, PD, BL1, SA, FL1, CL, WC)",
+            help="League ID de API-Football (ej. 39 para Premier League).",
+        )
+        parser.add_argument(
+            "--season",
+            required=True,
+            help="Temporada (ej. 2024).",
         )
 
     def handle(self, *args, **options):
-        code = options["competition"]
+        league_id = int(options["league"])
+        season = options["season"]
+
         try:
-            competition = Competition.objects.get(code=code)
+            competition = Competition.objects.get(id_api=league_id)
         except Competition.DoesNotExist:
             raise CommandError(
-                f"Competición {code} no existe. Ejecuta sync_competitions primero."
+                f"Competición {league_id} no existe. "
+                f"Ejecuta sync_competitions primero."
             )
 
-        client = FootballDataClient()
+        client = ApiFootballClient()
         try:
-            teams_data = client.get_competition_teams(code)
+            teams_data = client.get_teams(league=league_id, season=season)
         except Exception as exc:
             raise CommandError(f"Error obteniendo equipos: {exc}")
 
-        season = competition.current_season
+        if not teams_data:
+            self.stdout.write(self.style.WARNING(
+                f"No hay equipos para liga {league_id} temporada {season}. "
+                f"(¿Plan Free y temporada fuera de 2022-2024?)"
+            ))
+            return
+
         created = 0
         updated = 0
         links = 0
 
         for data in teams_data:
-            team, created_flag = Team.objects.update_or_create(
-                id_api=data["id"],
-                source=Team.Source.FOOTBALLDATA,
-                defaults={
-                    "name": data.get("name", ""),
-                    "short_name": data.get("shortName", ""),
-                    "tla": data.get("tla", ""),
-                    "crest_url": data.get("crest", ""),
-                    "founded": data.get("founded"),
-                    "venue": data.get("venue", ""),
-                    "website": data.get("website", ""),
-                },
+            team, created_flag = ensure_team(
+                data, competition, season_str=season
             )
-
+            if team is None:
+                continue
             if created_flag:
                 created += 1
-                assign_initial_elo(team, competition, season=season)
-                team.save(update_fields=["elo"])
-                self.stdout.write(f"  + {team.name} (Elo inicial {team.elo:.0f})")
+                self.stdout.write(
+                    f"  + {team.name} (Elo inicial {team.elo:.0f})"
+                )
             else:
                 updated += 1
                 self.stdout.write(f"  ~ {team.name}")
 
-            if season:
-                _, link_created = TeamCompetition.objects.get_or_create(
-                    team=team,
-                    competition=competition,
-                    season=season,
-                )
-                if link_created:
-                    links += 1
+            _, link_created = TeamCompetition.objects.get_or_create(
+                team=team,
+                competition=competition,
+                season=season,
+            )
+            if link_created:
+                links += 1
 
         self.stdout.write(self.style.SUCCESS(
             f"Equipos: {created} nuevos, {updated} actualizados, "

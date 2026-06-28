@@ -1,235 +1,406 @@
-# Documentación rápida: Football-Data.org con Python
+# Capa de Datos de Alpha Bet
 
-La API de Football-Data.org permite consultar competiciones, equipos, partidos, clasificaciones y resultados mediante solicitudes HTTP autenticadas con un token API. Todas las peticiones deben incluir el encabezado `X-Auth-Token`. ([Postman][1])
+## Objetivo
 
-## 1. Instalación
+Este documento describe la arquitectura completa de la capa de datos de Alpha Bet.
 
-```bash
-pip install requests
-```
+Su objetivo es definir cómo se obtiene, procesa y almacena toda la información utilizada por el sistema de pronósticos.
 
-## 2. Configuración básica
+API-Football constituye la fuente principal de datos, mientras que Alpha Bet es responsable de transformar dichos datos en información estadística reutilizable.
 
-```python
-import requests
+---
 
-API_TOKEN = "TU_API_TOKEN"
-BASE_URL = "https://api.football-data.org/v4"
+# Filosofía
 
-HEADERS = {
-    "X-Auth-Token": API_TOKEN
-}
+API-Football proporciona únicamente datos brutos.
+
+Toda la inteligencia debe construirse dentro de Alpha Bet.
+
+Los pronósticos nunca deben depender de consultas en tiempo real a la API.
+
+El flujo correcto es:
+
+```text
+API-Football
+        │
+        ▼
+Importador
+        │
+        ▼
+Base de datos Alpha Bet
+        │
+        ▼
+Procesamiento estadístico
+        │
+        ▼
+Modelos predictivos
 ```
 
 ---
 
-# Obtener partidos del día
+# Objetivos de la capa de datos
 
-El endpoint `/matches` devuelve los partidos disponibles. Puedes filtrar por fecha para obtener únicamente los encuentros de hoy. La API dispone de un recurso específico para partidos (`Match Resource`). ([Football Data][2])
+La base de datos debe permitir:
 
-```python
-import requests
-from datetime import date
-
-today = date.today().isoformat()
-
-response = requests.get(
-    f"{BASE_URL}/matches",
-    headers=HEADERS,
-    params={
-        "dateFrom": today,
-        "dateTo": today
-    }
-)
-
-data = response.json()
-
-for match in data["matches"]:
-    print(
-        f"{match['homeTeam']['name']} vs "
-        f"{match['awayTeam']['name']} - "
-        f"{match['utcDate']}"
-    )
-```
+* reconstruir cualquier partido histórico;
+* recalcular Elo desde cualquier fecha;
+* recalcular estadísticas históricas;
+* generar nuevos modelos sin volver a consultar la API;
+* minimizar el consumo de peticiones.
 
 ---
 
-# Obtener información de una competición
+# Información almacenada
 
-Primero puedes listar todas las competiciones disponibles.
+## Competiciones
 
-```python
-response = requests.get(
-    f"{BASE_URL}/competitions",
-    headers=HEADERS
-)
+Guardar:
 
-competitions = response.json()["competitions"]
-
-for comp in competitions[:10]:
-    print(comp["code"], "-", comp["name"])
-```
-
-La API proporciona un recurso específico para consultar competiciones mediante su código o ID. ([Football Data][3])
-
-Consultar una competición concreta:
-
-```python
-competition_code = "PL"  # Premier League
-
-response = requests.get(
-    f"{BASE_URL}/competitions/{competition_code}",
-    headers=HEADERS
-)
-
-competition = response.json()
-
-print(competition["name"])
-print(competition["area"]["name"])
-```
+* id_api
+* nombre
+* país
+* tipo (liga/copa)
+* logo
+* temporada actual
+* fortaleza inicial (Elo base)
 
 ---
 
-# Obtener equipos de una competición
+## Equipos
 
-Puedes obtener todos los equipos participantes de una competición.
+Guardar:
 
-```python
-competition_code = "PL"
+* id_api
+* nombre
+* abreviatura
+* país
+* estadio
+* logo
 
-response = requests.get(
-    f"{BASE_URL}/competitions/{competition_code}/teams",
-    headers=HEADERS
-)
+---
 
-teams = response.json()["teams"]
+## Partidos
 
-for team in teams:
-    print(team["id"], team["name"])
+Cada partido debe contener:
+
+* id_api
+* competición
+* temporada
+* jornada
+* fecha
+* estado
+* local
+* visitante
+* goles
+* tiempo extra
+* penales
+* sede neutral
+* árbitro
+
+Nunca eliminar partidos históricos.
+
+---
+
+# Estadísticas del partido
+
+Una vez finalizado el encuentro deben descargarse todas las estadísticas disponibles.
+
+## Goles
+
+* Goles
+* Goles primer tiempo
+* Goles segundo tiempo
+
+---
+
+## Remates
+
+* Totales
+* Al arco
+* Fuera
+* Bloqueados
+
+---
+
+## Posesión
+
+* Porcentaje de posesión
+
+---
+
+## Ataque
+
+* Corners
+* Offsides
+
+---
+
+## Disciplina
+
+* Faltas
+* Amarillas
+* Rojas
+
+---
+
+## Portería
+
+* Atajadas
+
+Aunque inicialmente algunas variables no formen parte del modelo, deben almacenarse para futuras investigaciones.
+
+---
+
+# Información contextual
+
+Antes del partido registrar:
+
+* árbitro;
+* estadio;
+* sede neutral;
+* días de descanso de ambos equipos;
+* importancia del partido (liga, copa, eliminación, amistoso);
+* disponibilidad general del equipo (lesionados/suspendidos como indicador agregado).
+
+Estas variables podrán utilizarse posteriormente para ajustar los modelos predictivos.
+
+---
+
+# Actualización del sistema
+
+Cada partido terminado activa automáticamente el siguiente proceso.
+
+```text
+Guardar partido
+        │
+        ▼
+Guardar estadísticas
+        │
+        ▼
+Actualizar Elo
+        │
+        ▼
+Actualizar estadísticas históricas
+        │
+        ▼
+Actualizar forma reciente
+        │
+        ▼
+Actualizar estadísticas derivadas
+        │
+        ▼
+Recalcular predicciones futuras
 ```
 
-La API dispone del endpoint `/competitions/{id}/teams` para recuperar los equipos de una competición determinada. ([Football Data][4])
+Todo el procesamiento ocurre dentro de Alpha Bet.
 
 ---
 
-# Obtener información de un equipo
+# Estadísticas históricas
 
-Una vez conocido el ID del equipo:
+Después de cada partido se actualizan automáticamente los promedios históricos.
 
-```python
-team_id = 64  # Liverpool (ejemplo)
+## Ofensivas
 
-response = requests.get(
-    f"{BASE_URL}/teams/{team_id}",
-    headers=HEADERS
-)
+Como local
 
-team = response.json()
+* goles
+* remates
+* remates al arco
+* corners
 
-print("Nombre:", team["name"])
-print("Fundado:", team["founded"])
-print("Estadio:", team["venue"])
-print("Sitio web:", team["website"])
+Como visitante
+
+Las mismas estadísticas.
+
+---
+
+## Defensivas
+
+Como local
+
+* goles recibidos
+* remates recibidos
+* remates al arco recibidos
+* corners concedidos
+
+Como visitante
+
+Las mismas estadísticas.
+
+---
+
+# Forma reciente
+
+Mantener tres ventanas:
+
+* últimos 5 partidos;
+* últimos 10 partidos;
+* últimos 20 partidos.
+
+Aplicar ponderación temporal exponencial para que los partidos recientes tengan mayor influencia.
+
+---
+
+# Estadísticas derivadas
+
+Además de los datos originales calcular automáticamente:
+
+## Ataque
+
+* promedio de goles;
+* promedio de remates;
+* promedio de remates al arco;
+* promedio de corners.
+
+---
+
+## Defensa
+
+* promedio de goles recibidos;
+* promedio de remates concedidos;
+* promedio de corners concedidos.
+
+---
+
+## Eficiencia
+
+Calcular indicadores como:
+
+* conversión de remates a gol;
+* precisión de remates (remates al arco / remates totales);
+* eficacia defensiva (goles recibidos / remates al arco recibidos);
+* generación de corners por remate.
+
+Estos indicadores ayudan a detectar equipos con rendimientos excepcionalmente altos o bajos que podrían no ser sostenibles.
+
+---
+
+# Mercados soportados
+
+Toda la información almacenada debe permitir desarrollar modelos para:
+
+## Modelo principal
+
+* Resultado (1X2).
+* Doble oportunidad.
+* Empate no acción.
+
+---
+
+## Modelo de goles
+
+* Over/Under.
+* Ambos marcan.
+* Marcador correcto.
+
+---
+
+## Modelo de remates
+
+* Remates del equipo.
+* Remates del partido.
+
+---
+
+## Modelo de remates al arco
+
+* Equipo.
+* Partido.
+
+---
+
+## Modelo de corners
+
+* Equipo.
+* Partido.
+
+---
+
+## Modelo disciplinario
+
+* Tarjetas.
+* Faltas.
+
+Todos los modelos reutilizan la misma información histórica.
+
+---
+
+# Organización de la base de datos
+
+La estructura recomendada es:
+
+```text
+Competition
+        │
+        ▼
+Season
+        │
+        ▼
+Team
+        │
+        ▼
+Match
+        │
+ ┌──────┴─────────┐
+ ▼                ▼
+MatchStatistics   EloHistory
+ │
+ ▼
+TeamStatistics
+ │
+ ▼
+RecentForm
+ │
+ ▼
+Forecast
 ```
 
----
-
-# Obtener los últimos partidos de un equipo
-
-```python
-team_id = 64
-
-response = requests.get(
-    f"{BASE_URL}/teams/{team_id}/matches",
-    headers=HEADERS,
-    params={
-        "limit": 5
-    }
-)
-
-matches = response.json()["matches"]
-
-for match in matches:
-    print(
-        match["homeTeam"]["name"],
-        "-",
-        match["awayTeam"]["name"]
-    )
-```
-
-El endpoint `/teams/{id}/matches` permite consultar los partidos de un equipo y aplicar filtros por fecha, competición, estado y temporada. ([Football Data][4])
+Cada módulo tiene una única responsabilidad y evita duplicar información.
 
 ---
 
-# Competiciones populares
+# Consumo de la API
 
-Algunos códigos útiles:
+La API solo debe utilizarse para:
 
-| Competición      | Código |
-| ---------------- | ------ |
-| Premier League   | PL     |
-| La Liga          | PD     |
-| Bundesliga       | BL1    |
-| Serie A          | SA     |
-| Ligue 1          | FL1    |
-| Champions League | CL     |
-| World Cup        | WC     |
+* descubrir competiciones;
+* importar temporadas;
+* actualizar partidos diarios;
+* descargar estadísticas oficiales.
 
-Estos códigos pueden utilizarse directamente en los endpoints de competiciones. ([Football Data][3])
+Todo cálculo estadístico debe realizarse localmente.
 
 ---
 
-# Ejemplo completo
+# Recomendaciones
 
-```python
-import requests
-from datetime import date
-
-API_TOKEN = "TU_API_TOKEN"
-
-headers = {
-    "X-Auth-Token": API_TOKEN
-}
-
-today = date.today().isoformat()
-
-response = requests.get(
-    "https://api.football-data.org/v4/matches",
-    headers=headers,
-    params={
-        "dateFrom": today,
-        "dateTo": today
-    }
-)
-
-for match in response.json()["matches"]:
-    print(
-        f"{match['competition']['name']} | "
-        f"{match['homeTeam']['name']} vs "
-        f"{match['awayTeam']['name']}"
-    )
-```
-
-Con estos cuatro endpoints (`/matches`, `/competitions`, `/competitions/{code}/teams` y `/teams/{id}`) puedes construir una base sólida para una plataforma de pronósticos, rankings Elo o análisis estadístico de fútbol. ([Football Data][4])
-
-Nota: La api key se encuentra en el archivo ".secret" y debe leerse con dotenv.
+1. Nunca recalcular estadísticas durante una consulta.
+2. Mantener todos los promedios precalculados.
+3. Actualizar estadísticas únicamente cuando termina un partido.
+4. Conservar siempre el historial completo.
+5. Separar claramente la importación de datos del motor de predicción.
 
 ---
 
-# Coexistencia con API-Football
+# Arquitectura final
 
-football-data.org es una de las dos fuentes de datos del proyecto. La división
-de fuentes es excluyente (ver `docs/api_football.md`):
+La plataforma queda dividida en cuatro capas independientes:
 
-* **football-data.org**: competiciones de clubes (PL, PD, BL1, SA, FL1, CL,
-  BSA, ELC, DED, PPL, CLI).
-* **API-Football**: selecciones nacionales (todas las confederaciones), copas
-  de clubes CONCACAF y ligas domésticas de Centro/Norteamérica.
-
-El campo `source` en `Competition`, `Team` y `Match` distingue el origen
-(`footballdata` / `apifootball`). La unicidad es por `(id_api, source)`.
-
-[1]: https://www.postman.com/api-noob/football-data-org-apis/documentation/yjgfm4j/football-data-org-v4?utm_source=chatgpt.com "Football-data.org v4 | Documentation | Postman API Network"
-[2]: https://www.football-data.org/documentation/api?utm_source=chatgpt.com "API Reference"
-[3]: https://docs.football-data.org/general/v4/competition.html?utm_source=chatgpt.com "Competition - football-data API documentation"
-[4]: https://www.football-data.org/documentation/quickstart?utm_source=chatgpt.com "API Quickstart"
+```text
+API-Football
+        │
+        ▼
+Capa de Importación
+        │
+        ▼
+Base Histórica
+        │
+        ▼
+Motor Estadístico
+        │
+        ▼
+Motor Predictivo
+        │
+        ▼
+Motor de Valor Esperado

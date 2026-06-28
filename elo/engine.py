@@ -36,9 +36,34 @@ def result_score(goals_for, goals_against):
     return 0.5
 
 
-def k_factor(matches_played):
+def k_factor(matches_played, competition=None):
+    """K-factor según antigüedad del equipo y tipo de competición.
+
+    Equipos nuevos (< ELO_NEW_TEAM_MATCHES) usan K mayor para converger
+    rápido. En torneos internacionales (WC, WCQ, copas continentales) se
+    aplica K mayor porque son partidos de mayor peso. Clubes profesionales
+    usan K=20, ligas menores K=25 (ver docs/elo.md Paso 7).
+
+    Clasificación de competición:
+      * Internacional: en settings.ELO_INTERNATIONAL_LEAGUE_IDS → K=30.
+      * Liga menor: catálogo semilla con initial_elo < ELO_MINOR_THRESHOLD → K=25.
+      * Resto (clubes top): K=20.
+    """
     if matches_played < settings.ELO_NEW_TEAM_MATCHES:
         return settings.ELO_K_NEW
+
+    if competition is not None:
+        intl_ids = getattr(settings, "ELO_INTERNATIONAL_LEAGUE_IDS", frozenset())
+        if competition.id_api in intl_ids:
+            return settings.ELO_K_INTERNATIONAL
+
+        minor_threshold = getattr(settings, "ELO_MINOR_LEAGUE_THRESHOLD", 1400)
+        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_ID", {}).get(
+            competition.id_api
+        )
+        if af is not None and af["initial_elo"] < minor_threshold:
+            return settings.ELO_K_MINOR
+
     return settings.ELO_K_DEFAULT
 
 
@@ -50,6 +75,8 @@ def compute_elo_update(
     home_played,
     away_played,
     home_advantage=None,
+    status_short="",
+    competition=None,
 ):
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
@@ -58,24 +85,34 @@ def compute_elo_update(
         home_elo, away_elo, home_advantage=home_advantage, is_home=True
     )
 
-    s_home = result_score(home_goals, away_goals)
-    s_away = result_score(away_goals, home_goals)
+    # Los partidos decididos por penales (status PEN) se tratan como empate
+    # para Elo (S=0.5) sin importar el marcador: los penales no reflejan
+    # fuerza relativa, solo desempate. Los goles usados son los de fulltime
+    # (90 + extra time), ya guardados en home_goals/away_goals.
+    is_penalty = status_short.upper() == "PEN"
 
-    goal_diff = abs(home_goals - away_goals)
+    if is_penalty:
+        s_home = 0.5
+        s_away = 0.5
+        goal_diff = 0
+    else:
+        s_home = result_score(home_goals, away_goals)
+        s_away = result_score(away_goals, home_goals)
+        goal_diff = abs(home_goals - away_goals)
 
-    if home_goals > away_goals:
-        winner_elo, loser_elo = home_elo, away_elo
+    if goal_diff > 0:
+        if home_goals > away_goals:
+            winner_elo, loser_elo = home_elo, away_elo
+        else:
+            winner_elo, loser_elo = away_elo, home_elo
         delta_elo = winner_elo - loser_elo
-    elif away_goals > home_goals:
-        winner_elo, loser_elo = away_elo, home_elo
-        delta_elo = winner_elo - loser_elo
+        m = strength_multiplier(goal_diff, delta_elo)
     else:
         delta_elo = 0.0
+        m = 1.0
 
-    m = strength_multiplier(goal_diff, delta_elo) if goal_diff > 0 else 1.0
-
-    k_home = k_factor(home_played)
-    k_away = k_factor(away_played)
+    k_home = k_factor(home_played, competition)
+    k_away = k_factor(away_played, competition)
 
     home_delta = k_home * m * (s_home - e_home)
     away_delta = k_away * m * (s_away - e_away)
@@ -111,6 +148,8 @@ def apply_elo_update(match, regenerate_forecasts=True):
         away_goals=match.away_goals,
         home_played=home.matches_played,
         away_played=away.matches_played,
+        status_short=match.status_short,
+        competition=match.competition,
     )
 
     match.home_elo_before = home.elo
@@ -178,49 +217,50 @@ def assign_initial_elo(team, competition, season=""):
     if strength is not None:
         team.elo = strength.average_elo
     else:
-        # Competiciones de football-data usan ELO_LEAGUE_INITIAL por code.
-        # Competiciones de api-football usan API_FOOTBALL_LEAGUES_BY_CODE.
-        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_CODE", {}).get(
-            competition.code
+        # Catálogo semilla de calibración por id_api. Las ligas no
+        # listadas usan ELO_DEFAULT y se recalibran tras el backfill.
+        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_ID", {}).get(
+            competition.id_api
         )
         if af is not None:
             team.elo = af["initial_elo"]
         else:
-            team.elo = settings.ELO_LEAGUE_INITIAL.get(
-                competition.code, settings.ELO_DEFAULT
-            )
+            team.elo = settings.ELO_DEFAULT
     return team.elo
 
 
 def recompute_league_strength(season=None):
-    from elo.models import LeagueStrength
-    from teams.models import TeamCompetition
+    from django.db.models import Avg
 
-    links = TeamCompetition.objects.all()
+    from elo.models import LeagueStrength
+    from teams.models import Competition, TeamCompetition
+
+    # Una sola query agregada: promedio de Elo por (competición, temporada).
+    qs = TeamCompetition.objects.values("competition_id", "season").annotate(
+        avg_elo=Avg("team__elo")
+    )
     if season:
-        links = links.filter(season=season)
+        qs = qs.filter(season=season)
+
+    rows = list(qs)
+    if not rows:
+        return 0
+
+    # Resolver competiciones en una sola query.
+    comp_ids = {row["competition_id"] for row in rows if row["avg_elo"] is not None}
+    comps = {c.id: c for c in Competition.objects.filter(id__in=comp_ids)}
 
     updated = 0
-    seen = set()
-    for link in links.select_related("competition"):
-        key = (link.competition_id, link.season)
-        if key in seen:
+    for row in rows:
+        if row["avg_elo"] is None:
             continue
-        seen.add(key)
-
-        team_ids = TeamCompetition.objects.filter(
-            competition=link.competition, season=link.season
-        ).values_list("team_id", flat=True)
-        from teams.models import Team
-        teams = Team.objects.filter(id__in=team_ids)
-        if not teams:
+        competition = comps.get(row["competition_id"])
+        if competition is None:
             continue
-        avg = sum(t.elo for t in teams) / teams.count()
-
-        obj, created = LeagueStrength.objects.update_or_create(
-            competition=link.competition,
-            season=link.season,
-            defaults={"average_elo": round(avg, 1)},
+        LeagueStrength.objects.update_or_create(
+            competition=competition,
+            season=row["season"],
+            defaults={"average_elo": round(row["avg_elo"], 1)},
         )
         updated += 1
     return updated

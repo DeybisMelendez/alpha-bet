@@ -81,7 +81,6 @@ def team_list(request):
     if q:
         teams = teams.filter(
             Q(name__icontains=q)
-            | Q(short_name__icontains=q)
             | Q(tla__icontains=q)
         )
     teams = teams.order_by("-elo", "name")

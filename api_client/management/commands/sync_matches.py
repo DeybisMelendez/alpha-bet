@@ -1,44 +1,35 @@
 from datetime import date, timedelta
 
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
-from api_client.client import FootballDataClient
+from api_client.client import ApiFootballClient
 from api_client.sync import ensure_competition, ensure_team, save_match
 from elo.engine import apply_elo_update
 from forecasts.engine import generate_forecast
-from matches.models import Match
 from teams.models import Competition
 
 
 class Command(BaseCommand):
     help = (
-        "Sincroniza partidos desde football-data.org dentro de una ventana "
-        "semanal. Procesa Elo para finalizados y genera pronósticos para "
-        "programados."
+        "Sincroniza partidos desde API-Football consultando date=hoy-1, hoy "
+        "y hoy+1 (3 peticiones). Filtra client-side a las competiciones ya "
+        "registradas en la BD (trackeadas vía sync_competitions). Procesa Elo "
+        "para finalizados y genera pronósticos para programados."
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--competition",
-            help="Código de competición (PL, PD, ...). Si se omite, usa /matches por fecha.",
+            "--days-back",
+            type=int,
+            default=1,
+            help="Días hacia atrás a consultar (default: 1).",
         )
         parser.add_argument(
             "--days-ahead",
             type=int,
-            default=settings.FORECAST_SCHEDULE_DAYS,
-            help="Ventana de días hacia adelante (default: pronóstico semanal).",
-        )
-        parser.add_argument(
-            "--days-back",
-            type=int,
-            default=settings.SYNC_BACK_DAYS,
-            help="Ventana de días hacia atrás para capturar resultados recientes.",
-        )
-        parser.add_argument(
-            "--matchday",
-            type=int,
-            help="Jornada específica (solo con --competition).",
+            default=1,
+            help="Días hacia adelante a consultar (default: 1).",
         )
         parser.add_argument(
             "--no-elo",
@@ -52,129 +43,131 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        client = FootballDataClient()
-        code = options.get("competition")
-        days_ahead = options.get("days_ahead", settings.FORECAST_SCHEDULE_DAYS)
-        days_back = options.get("days_back", settings.SYNC_BACK_DAYS)
-        matchday = options.get("matchday")
+        client = ApiFootballClient()
+        no_elo = options["no_elo"]
+        no_forecasts = options["no_forecasts"]
+        days_back = options["days_back"]
+        days_ahead = options["days_ahead"]
+
+        # IDs de competiciones ya registradas para filtrado client-side.
+        tracked_ids = set(
+            Competition.objects.values_list("id_api", flat=True)
+        )
+        if not tracked_ids:
+            self.stdout.write(self.style.WARNING(
+                "No hay competiciones registradas. Ejecuta sync_competitions "
+                "primero."
+            ))
+            return
 
         today = date.today()
-        date_from = (today - timedelta(days=days_back)).isoformat()
-        date_to = (today + timedelta(days=days_ahead)).isoformat()
+        dates = [
+            (today + timedelta(days=offset)).isoformat()
+            for offset in range(-days_back, days_ahead + 1)
+        ]
 
-        if code:
-            try:
-                competition = Competition.objects.get(code=code)
-            except Competition.DoesNotExist:
-                raise CommandError(
-                    f"Competición {code} no existe. Ejecuta sync_competitions primero."
-                )
-            season = competition.current_season
-            self.stdout.write(f"Sincronizando partidos de {competition.name}...")
+        stats = {
+            "matches_new": 0,
+            "matches_updated": 0,
+            "elo_processed": 0,
+            "forecasts_generated": 0,
+            "forecasts_fallback": 0,
+            "skipped": 0,
+            "errors": 0,
+        }
 
+        for date_str in dates:
+            self.stdout.write(f"  Consultando date={date_str}...")
             try:
-                if matchday:
-                    # Jornada específica: no filtra por fecha.
-                    matches_data = client.get_competition_matches(
-                        code, matchday=matchday, season=season
-                    )
-                else:
-                    matches_data = client.get_competition_matches(
-                        code, season=season,
-                        date_from=date_from, date_to=date_to,
-                    )
+                fixtures = client.get_fixtures_by_date(date_str)
             except Exception as exc:
-                raise CommandError(f"Error obteniendo partidos: {exc}")
-        else:
-            self.stdout.write(
-                f"Sincronizando partidos entre {date_from} y {date_to}..."
-            )
-            try:
-                matches_data = client.get_matches(
-                    date_from=date_from, date_to=date_to,
-                    competitions=settings.FOOTBALL_COMPETITIONS_ALL,
-                )
-            except Exception as exc:
-                raise CommandError(f"Error obteniendo partidos: {exc}")
-
-        created = 0
-        updated = 0
-        elo_processed = 0
-        forecasts_generated = 0
-        forecasts_fallback = 0
-
-        for data in matches_data:
-            try:
-                comp_data = data.get("competition", {}) or {}
-                competition, _ = ensure_competition(comp_data)
-                if competition is None:
-                    continue
-
-                home_data = data.get("homeTeam", {}) or {}
-                away_data = data.get("awayTeam", {}) or {}
-                season_data = data.get("season", {}) or {}
-                season_str = (season_data.get("startDate", "") or "")[:4] or ""
-
-                home, _ = ensure_team(home_data, competition, season_str)
-                away, _ = ensure_team(away_data, competition, season_str)
-                if home is None or away is None:
-                    continue
-
-                match, created_flag = save_match(
-                    data, competition, home, away
-                )
-                if match is None:
-                    continue
-
-                if created_flag:
-                    created += 1
-                else:
-                    updated += 1
-
-                if (
-                    not options["no_elo"]
-                    and match.is_finished
-                    and match.has_result
-                    and not match.elo_processed
-                ):
-                    try:
-                        result = apply_elo_update(match)
-                        if result is not None:
-                            elo_processed += 1
-                    except Exception as exc:
-                        self.stderr.write(
-                            self.style.ERROR(
-                                f"Error Elo en partido {match.id_api}: {exc}"
-                            )
-                        )
-
-                if (
-                    not options["no_forecasts"]
-                    and match.is_scheduled
-                ):
-                    try:
-                        forecast = generate_forecast(match)
-                        if forecast is not None:
-                            forecasts_generated += 1
-                            if forecast.is_fallback:
-                                forecasts_fallback += 1
-                    except Exception as exc:
-                        self.stderr.write(
-                            self.style.ERROR(
-                                f"Error pronóstico en partido {match.id_api}: {exc}"
-                            )
-                        )
-
-            except Exception as exc:
+                stats["errors"] += 1
                 self.stderr.write(
-                    self.style.ERROR(
-                        f"Error procesando partido {data.get('id')}: {exc}"
-                    )
+                    self.style.ERROR(f"  Error obteniendo {date_str}: {exc}")
                 )
+                continue
+
+            for fx in fixtures:
+                league = fx.get("league", {}) or {}
+                league_id = league.get("id")
+                if league_id not in tracked_ids:
+                    stats["skipped"] += 1
+                    continue
+
+                season_str = str(league.get("season") or "")
+                try:
+                    self._process_fixture(
+                        fx, league, season_str,
+                        no_elo, no_forecasts, stats,
+                    )
+                except Exception as exc:
+                    stats["errors"] += 1
+                    self.stderr.write(self.style.ERROR(
+                        f"  Error en fixture "
+                        f"{fx.get('fixture', {}).get('id')}: {exc}"
+                    ))
 
         self.stdout.write(self.style.SUCCESS(
-            f"Partidos: {created} nuevos, {updated} actualizados | "
-            f"Elo procesado: {elo_processed} | "
-            f"Pronósticos: {forecasts_generated} generados "
-            f"({forecasts_fallback} fallback solo Elo)"
+            f"API-Football: {stats['matches_new']} nuevos, "
+            f"{stats['matches_updated']} actualizados | "
+            f"Elo: {stats['elo_processed']} | "
+            f"Pronósticos: {stats['forecasts_generated']} "
+            f"({stats['forecasts_fallback']} fallback) | "
+            f"Omitidos (no tracked): {stats['skipped']} | "
+            f"Errores: {stats['errors']}"
         ))
+
+    def _process_fixture(self, fx, league, season_str,
+                         no_elo, no_forecasts, stats):
+        competition, _ = ensure_competition(
+            {"league": league, "country": {}}, season_str
+        )
+        if competition is None:
+            return
+
+        teams = fx.get("teams", {}) or {}
+        home_data = teams.get("home", {}) or {}
+        away_data = teams.get("away", {}) or {}
+
+        home, _ = ensure_team(home_data, competition, season_str)
+        away, _ = ensure_team(away_data, competition, season_str)
+        if home is None or away is None:
+            return
+
+        match, created = save_match(
+            fx, competition, home, away, season_str=season_str
+        )
+        if match is None:
+            return
+
+        if created:
+            stats["matches_new"] += 1
+        else:
+            stats["matches_updated"] += 1
+
+        if (
+            not no_elo
+            and match.is_finished
+            and match.has_result
+            and not match.elo_processed
+        ):
+            try:
+                result = apply_elo_update(match)
+                if result is not None:
+                    stats["elo_processed"] += 1
+            except Exception as exc:
+                self.stderr.write(self.style.ERROR(
+                    f"  Error Elo en partido {match.id_api}: {exc}"
+                ))
+
+        if not no_forecasts and match.is_scheduled:
+            try:
+                forecast = generate_forecast(match)
+                if forecast is not None:
+                    stats["forecasts_generated"] += 1
+                    if forecast.is_fallback:
+                        stats["forecasts_fallback"] += 1
+            except Exception as exc:
+                self.stderr.write(self.style.ERROR(
+                    f"  Error pronóstico en partido {match.id_api}: {exc}"
+                ))

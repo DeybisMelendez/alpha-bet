@@ -2,23 +2,21 @@ from django.db import models
 
 
 class Competition(models.Model):
-    class Source(models.TextChoices):
-        FOOTBALLDATA = "footballdata", "football-data.org"
-        APIFOOTBALL = "apifootball", "API-Football"
-
-    id_api = models.PositiveIntegerField(db_index=True)
-    source = models.CharField(
-        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
-    )
-    code = models.CharField(max_length=10, unique=True)
+    id_api = models.PositiveIntegerField(unique=True, db_index=True)
+    code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=200)
     area_name = models.CharField(max_length=100, blank=True, default="")
     area_code = models.CharField(max_length=20, blank=True, default="")
-    plan = models.CharField(max_length=20, blank=True, default="")
+    league_type = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Tipo de competición según API-Football (league/cup).",
+    )
+    logo = models.URLField(blank=True, default="")
     current_season = models.CharField(max_length=20, blank=True, default="")
 
     class Meta:
-        unique_together = ("id_api", "source")
         ordering = ["name"]
         verbose_name = "Competición"
         verbose_name_plural = "Competiciones"
@@ -28,26 +26,17 @@ class Competition(models.Model):
 
 
 class Team(models.Model):
-    class Source(models.TextChoices):
-        FOOTBALLDATA = "footballdata", "football-data.org"
-        APIFOOTBALL = "apifootball", "API-Football"
-
-    id_api = models.PositiveIntegerField(db_index=True)
-    source = models.CharField(
-        max_length=20, choices=Source.choices, default=Source.FOOTBALLDATA
-    )
+    id_api = models.PositiveIntegerField(unique=True, db_index=True)
     name = models.CharField(max_length=200)
-    short_name = models.CharField(max_length=100, blank=True, default="")
     tla = models.CharField(max_length=10, blank=True, default="")
     crest_url = models.URLField(blank=True, default="")
     founded = models.PositiveIntegerField(null=True, blank=True)
     venue = models.CharField(max_length=200, blank=True, default="")
-    website = models.URLField(blank=True, default="")
+    country = models.CharField(max_length=100, blank=True, default="")
     elo = models.FloatField(default=1500.0)
     matches_played = models.PositiveIntegerField(default=0)
 
     class Meta:
-        unique_together = ("id_api", "source")
         ordering = ["name"]
         verbose_name = "Equipo"
         verbose_name_plural = "Equipos"

@@ -45,6 +45,7 @@ def recent_finished_matches(team, n=None):
             status=Match.Status.FINISHED,
             home_goals__isnull=False,
             away_goals__isnull=False,
+            elo_processed=True,
         )
         .order_by("-utc_date")[:n]
     )
@@ -58,6 +59,7 @@ def last_match_date(team):
             status=Match.Status.FINISHED,
             home_goals__isnull=False,
             away_goals__isnull=False,
+            elo_processed=True,
         )
         .order_by("-utc_date")
         .first()
@@ -65,18 +67,21 @@ def last_match_date(team):
     return m.utc_date if m else None
 
 
-def is_form_stale(team, max_months=None, now=None):
+def is_form_stale(team, max_months=None, now=None, last_date=None):
     """Detecta si la forma reciente del equipo está desactualizada.
 
     Devuelve True si el último partido finalizado del equipo es más
     antiguo que FORECAST_STALE_MONTHS. En ese caso la forma reciente no
     es representativa y el pronóstico debe usar fallback Elo-only.
+
+    last_date permite inyectar la fecha precalculada para evitar una
+    query duplicada cuando el llamador ya la obtuvo.
     """
     if max_months is None:
         max_months = getattr(settings, "FORECAST_STALE_MONTHS", 6)
     if now is None:
         now = timezone.now()
-    last = last_match_date(team)
+    last = last_date if last_date is not None else last_match_date(team)
     if last is None:
         return True
     age_days = (now - last).days
@@ -108,14 +113,18 @@ def adjusted_goals_for(team, match):
 
 
 def adjusted_goals_against(team, match):
+    # Factor inverso al de ataque: recibir un gol de un rival débil penaliza
+    # más la defensa propia, mientras que recibirlo de un rival fuerte es más
+    # esperado y se atenúa. Por eso aquí el factor es team/opponent (inverso
+    # del de adjusted_goals_for, que usa opponent/team).
     raw = _goals_against(team, match)
     if raw is None:
         return 0.0
     opponent_elo = _opponent_elo_at_match(team, match)
     team_elo = _team_elo_at_match(team, match)
-    if team_elo <= 0:
+    if opponent_elo <= 0:
         return float(raw)
-    factor = opponent_elo / team_elo
+    factor = team_elo / opponent_elo
     return raw * factor
 
 
@@ -144,11 +153,13 @@ def expected_goals(home, away, home_advantage=None):
     factor_away = 1 - (diff / 1000)
 
     # Goles esperados combinando el ataque propio con la defensa del rival.
-    # Se promedian ambos ratings para evitar sobreestimar cuando solo uno
-    # es alto (ataque fuerte vs defensa fuerte deben atenuarse, no tomar el
-    # mayor). Coherente con Poisson bivariado estándar (Dixon-Coles).
-    xg_home = (atk_home + def_away) / 2 * factor_home
-    xg_away = (atk_away + def_home) / 2 * factor_away
+    # Se usa promedio geométrico sqrt(atk * def) en lugar del aritmético
+    # porque el modelo Poisson subyacente (Dixon-Coles) es multiplicativo:
+    # log(λ) = μ + α_ataque + β_defensa. El promedio geométrico respeta esa
+    # estructura y evita el amortiguamiento del aritmético (ataque fuerte vs
+    # defensa fuerte ya no colapsan al centro).
+    xg_home = math.sqrt(max(atk_home * def_away, 0.0)) * factor_home
+    xg_away = math.sqrt(max(atk_away * def_home, 0.0)) * factor_away
 
     xg_home = max(xg_home, 0.0)
     xg_away = max(xg_away, 0.0)
@@ -179,8 +190,8 @@ def expected_goals_from_ratings(
     factor_home = 1 + (diff / 1000)
     factor_away = 1 - (diff / 1000)
 
-    xg_home = (home_attack + away_defense) / 2 * factor_home
-    xg_away = (away_attack + home_defense) / 2 * factor_away
+    xg_home = math.sqrt(max(home_attack * away_defense, 0.0)) * factor_home
+    xg_away = math.sqrt(max(away_attack * home_defense, 0.0)) * factor_away
 
     xg_home = max(xg_home, 0.0)
     xg_away = max(xg_away, 0.0)
@@ -298,13 +309,26 @@ def market_probabilities(matrix):
 
     El BTTS se suma celda a celda (no se asume independencia entre goles)
     porque la corrección Dixon-Coles introduce dependencia en baja anotación.
+
+    Con rho != 0 la matriz no suma exactamente 1, así que todas las
+    probabilidades derivadas se normalizan por el total de la matriz para
+    mantener consistencia con probabilities_1x2 (que también normaliza).
     """
+    total = sum(p for row in matrix for p in row)
+    if total <= 0:
+        return {
+            "home": 0.0, "draw": 0.0, "away": 0.0,
+            "1x": 0.0, "x2": 0.0, "12": 0.0,
+            "btts": 0.0, "btts_no": 1.0,
+        }
+
     p_home, p_draw, p_away = probabilities_1x2(matrix)
     btts = 0.0
     for i, row in enumerate(matrix):
         for j, p in enumerate(row):
             if i >= 1 and j >= 1:
                 btts += p
+    btts = btts / total
     return {
         "home": p_home,
         "draw": p_draw,
@@ -340,12 +364,16 @@ def _form_summary(team):
 
 
 def team_history_count(team):
+    # Solo se cuentan partidos con Elo procesado: la forma reciente usa
+    # elo_before para ajustar goles por dificultad del rival, por lo que
+    # los partidos sin procesar no son utilizables por el modelo completo.
     return (
         Match.objects.filter(
             Q(home_team=team) | Q(away_team=team),
             status=Match.Status.FINISHED,
             home_goals__isnull=False,
             away_goals__isnull=False,
+            elo_processed=True,
         ).count()
     )
 
@@ -410,20 +438,57 @@ def value_bet_analysis(market_probs, odds):
     return {"rows": rows, "vig": vig, "recommendation": recommendation}
 
 
-def generate_forecast(match):
+def _team_form_data(team, cache=None):
+    """Calcula y cachea todos los datos de forma de un equipo.
+
+    Durante una corrida batch (generate_for_scheduled_matches,
+    regenerate_for_teams) se reutiliza el mismo cache dict para evitar
+    reconsultar la forma de equipos que aparecen en varios partidos.
+
+    Devuelve un dict con: history_count, last_date, stale, attack,
+    defense, form_summary.
+    """
+    if cache is not None and team.id in cache:
+        return cache[team.id]
+
+    history_count = team_history_count(team)
+    last_date = last_match_date(team)
+    stale = is_form_stale(team, last_date=last_date)
+    attack, defense = attack_defense_ratings(team)
+    form_summary = _form_summary(team)
+
+    data = {
+        "history_count": history_count,
+        "last_date": last_date,
+        "stale": stale,
+        "attack": attack,
+        "defense": defense,
+        "form_summary": form_summary,
+    }
+    if cache is not None:
+        cache[team.id] = data
+    return data
+
+
+def generate_forecast(match, cache=None):
     home = match.home_team
     away = match.away_team
 
-    home_history = team_history_count(home)
-    away_history = team_history_count(away)
+    # El cache evita reconsultar la forma de equipos que aparecen en
+    # varios partidos dentro de la misma corrida batch.
+    home_data = _team_form_data(home, cache=cache)
+    away_data = _team_form_data(away, cache=cache)
+
+    home_history = home_data["history_count"]
+    away_history = away_data["history_count"]
     min_history = settings.FORECAST_MIN_HISTORY
 
     # Se usa fallback cuando un equipo no tiene historial suficiente o
     # cuando su forma reciente está desactualizada (stale). Esto último
     # ocurre con selecciones nacionales cuyo historial tiene huecos por
     # las restricciones del plan Free de API-Football (solo hoy ± 1 día).
-    home_stale = is_form_stale(home)
-    away_stale = is_form_stale(away)
+    home_stale = home_data["stale"]
+    away_stale = away_data["stale"]
 
     is_fallback = (
         home_history < min_history
@@ -443,9 +508,17 @@ def generate_forecast(match):
             "stale": away_stale,
         }
     else:
-        xg_home, xg_away = expected_goals(home, away)
-        form_home = _form_summary(home)
-        form_away = _form_summary(away)
+        # Pronóstico completo usando los ratings cacheados de forma reciente.
+        xg_home, xg_away = expected_goals_from_ratings(
+            home.elo,
+            home_data["attack"],
+            home_data["defense"],
+            away.elo,
+            away_data["attack"],
+            away_data["defense"],
+        )
+        form_home = home_data["form_summary"]
+        form_away = away_data["form_summary"]
 
     matrix = build_matrix(xg_home, xg_away)
     p_home, p_draw, p_away = probabilities_1x2(matrix)
@@ -488,15 +561,21 @@ def generate_for_scheduled_matches(limit=None, days=None):
 
     Devuelve (generated, fallback) donde fallback es el número de
     pronósticos calculados solo con Elo por historial insuficiente.
+
+    Usa un cache de forma reciente por equipo para evitar reconsultar
+    equipos que aparecen en varios partidos de la misma ventana.
     """
     scheduled = scheduled_matches_in_window(days=days)
     if limit:
         scheduled = scheduled[:limit]
+    # Precargar relaciones para evitar N+1 en el iter.
+    scheduled = scheduled.select_related("home_team", "away_team", "competition")
+    cache = {}
     generated = 0
     fallback = 0
     for match in scheduled:
         try:
-            forecast = generate_forecast(match)
+            forecast = generate_forecast(match, cache=cache)
             if forecast is not None:
                 generated += 1
                 if forecast.is_fallback:
@@ -520,7 +599,7 @@ def upcoming_matches_for_team(team, days=None):
         status__in=[Match.Status.SCHEDULED, Match.Status.TIMED],
         utc_date__gte=now,
         utc_date__lte=horizon,
-    ).order_by("utc_date")
+    ).select_related("home_team", "away_team", "competition").order_by("utc_date")
 
 
 def regenerate_upcoming_forecasts(team, days=None):
@@ -531,11 +610,12 @@ def regenerate_upcoming_forecasts(team, days=None):
     Elo y la nueva forma reciente.
     """
     matches = upcoming_matches_for_team(team, days=days)
+    cache = {}
     regenerated = 0
     fallback = 0
     for match in matches:
         try:
-            forecast = generate_forecast(match)
+            forecast = generate_forecast(match, cache=cache)
             if forecast is not None:
                 regenerated += 1
                 if forecast.is_fallback:
@@ -553,8 +633,12 @@ def regenerate_for_teams(teams, days=None):
 
     Evita procesar dos veces el mismo partido cuando ambos equipos están en
     la lista (caso habitual: home y away del partido recién finalizado).
+
+    Usa un cache de forma reciente compartido: tras un update de Elo, la
+    forma de los equipos cambia y se recalcula para todos a la vez.
     """
     seen = set()
+    cache = {}
     generated = 0
     fallback = 0
     for team in teams:
@@ -563,7 +647,7 @@ def regenerate_for_teams(teams, days=None):
                 continue
             seen.add(match.pk)
             try:
-                forecast = generate_forecast(match)
+                forecast = generate_forecast(match, cache=cache)
                 if forecast is not None:
                     generated += 1
                     if forecast.is_fallback:
