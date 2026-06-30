@@ -7,6 +7,15 @@ class ForecastCalculateForm(forms.Form):
 
     Permite ingresar Elo, ataque y defensa de cada equipo sin depender de
     la DB. Útil para escenarios what-if y probar el modelo.
+
+    Entradas por equipo (separadas por condición local/visitante según
+    docs/xG.md):
+      * home_attack: ataque del local jugando como local.
+      * home_defense: defensa del local jugando como local.
+      * away_attack: ataque del visitante jugando como visitante.
+      * away_defense: defensa del visitante jugando como visitante.
+    La combinación usa λLocal = √(home_attack × away_defense) y
+    λVisitante = √(away_attack × home_defense).
     """
 
     home_elo = forms.FloatField(
@@ -18,13 +27,13 @@ class ForecastCalculateForm(forms.Form):
         label="Ataque local",
         initial=1.4,
         min_value=0,
-        help_text="Goles ajustados promedio anotados en los últimos partidos.",
+        help_text="Goles ajustados promedio anotados como local.",
     )
     home_defense = forms.FloatField(
         label="Defensa local",
         initial=1.0,
         min_value=0,
-        help_text="Goles ajustados promedio recibidos en los últimos partidos.",
+        help_text="Goles ajustados promedio recibidos como local.",
     )
     away_elo = forms.FloatField(
         label="Elo visitante",
@@ -35,11 +44,13 @@ class ForecastCalculateForm(forms.Form):
         label="Ataque visitante",
         initial=1.4,
         min_value=0,
+        help_text="Goles ajustados promedio anotados como visitante.",
     )
     away_defense = forms.FloatField(
         label="Defensa visitante",
         initial=1.0,
         min_value=0,
+        help_text="Goles ajustados promedio recibidos como visitante.",
     )
     home_advantage = forms.FloatField(
         label="Ventaja localía",
@@ -48,10 +59,50 @@ class ForecastCalculateForm(forms.Form):
         required=False,
         help_text="Puntos Elo extra para el local. 0 desactiva la localía.",
     )
+    is_neutral = forms.BooleanField(
+        label="Sede neutral",
+        required=False,
+        help_text=(
+            "Partido en sede neutral (Mundial, fases finales). Anula la "
+            "ventaja de localía docs/elo.md §Ventaja de localía."
+        ),
+    )
+    form_home = forms.FloatField(
+        label="Forma reciente local",
+        initial=1.0,
+        min_value=0.5,
+        required=False,
+        help_text=(
+            "Factor multiplicativo sobre λ (≈1 esperado, <1 mal momento, "
+            ">1 buen momento). Rango típico 0.8 - 1.2."
+        ),
+    )
+    form_away = forms.FloatField(
+        label="Forma reciente visitante",
+        initial=1.0,
+        min_value=0.5,
+        required=False,
+        help_text="Factor multiplicativo sobre λ del visitante.",
+    )
 
     def clean_home_advantage(self):
         value = self.cleaned_data.get("home_advantage")
         return 0.0 if value is None else value
+
+    def clean_form_home(self):
+        value = self.cleaned_data.get("form_home")
+        return 1.0 if value is None else value
+
+    def clean_form_away(self):
+        value = self.cleaned_data.get("form_away")
+        return 1.0 if value is None else value
+
+    def clean(self):
+        cleaned = super().clean()
+        # Sede neutral anula la localía por consistencia con docs/elo.md.
+        if cleaned.get("is_neutral"):
+            cleaned["home_advantage"] = 0.0
+        return cleaned
 
 
 class ValueBetForm(forms.Form):
@@ -100,6 +151,42 @@ class ValueBetForm(forms.Form):
         min_value=1.01,
         required=False,
         help_text="Ambos equipos marcan al menos un gol.",
+    )
+    odd_score_home = forms.FloatField(
+        label="Cuota local marca",
+        min_value=1.01,
+        required=False,
+        help_text="El equipo local marca al menos un gol.",
+    )
+    odd_score_away = forms.FloatField(
+        label="Cuota visitante marca",
+        min_value=1.01,
+        required=False,
+        help_text="El equipo visitante marca al menos un gol.",
+    )
+    odd_over_05 = forms.FloatField(
+        label="Cuota Over 0.5", min_value=1.01, required=False,
+        help_text="Más de 0.5 goles en el partido.",
+    )
+    odd_over_15 = forms.FloatField(
+        label="Cuota Over 1.5", min_value=1.01, required=False,
+    )
+    odd_over_25 = forms.FloatField(
+        label="Cuota Over 2.5", min_value=1.01, required=False,
+    )
+    odd_over_35 = forms.FloatField(
+        label="Cuota Over 3.5", min_value=1.01, required=False,
+    )
+    odd_over_45 = forms.FloatField(
+        label="Cuota Over 4.5", min_value=1.01, required=False,
+    )
+    odd_dnb_home = forms.FloatField(
+        label="Cuota DNB Local", min_value=1.01, required=False,
+        help_text="Draw No Bet local: empate reembolsa.",
+    )
+    odd_dnb_away = forms.FloatField(
+        label="Cuota DNB Visitante", min_value=1.01, required=False,
+        help_text="Draw No Bet visitante: empate reembolsa.",
     )
 
     def clean(self):

@@ -8,6 +8,8 @@
 .mb-1 { margin-bottom: 1rem; }
 .mb-2 { margin-bottom: 2rem; }
 .text-center { text-align: center; }
+.grid-2 { display: grid; gap: 1rem; grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
 .w-100 { width: 100%; }
 .text-muted { color: var(--pico-muted-color); }
 .small { font-size: 0.85rem; }

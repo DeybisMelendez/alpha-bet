@@ -189,12 +189,20 @@ FactorElo
 
 ×
 
-FactorLocalía
+FactorForma
 ```
 
 y de forma equivalente para el visitante.
 
 El promedio geométrico representa mejor la naturaleza multiplicativa del modelo Poisson que el promedio aritmético.
+
+> **Nota de implementación.** En el código la localía **no** es un
+> multiplicador aparte sobre λ: se integra dentro del diff de Elo que
+> alimenta `FactorElo`, es decir, `diff = (EloLocal + Localía) −
+> EloVisitante` (ver `forecasts/engine.py:expected_goals`). `FactorForma`
+> es el factor de forma reciente acotado a `1 ± 0.20`
+> (`FORECAST_FORM_MAX_IMPACT`). Para el detalle completo del cálculo de
+> ataque/defensa y el fallback sin historial, ver `docs/xG.md`.
 
 ---
 
@@ -251,7 +259,7 @@ k!
 
 para cada cantidad de goles.
 
-Normalmente basta con calcular de 0 a 6 goles, ya que las probabilidades superiores son muy pequeñas.
+Normalmente basta con calcular de 0 a 5 goles (`POISSON_MAX_GOALS`), ya que las probabilidades superiores son muy pequeñas.
 
 ---
 
@@ -293,9 +301,15 @@ A partir de la matriz pueden calcularse automáticamente:
 * Over/Under 4.5.
 * Marcador correcto.
 * Draw No Bet.
-* Asian Handicap (básico).
 
 Todos los mercados deben derivarse de la misma matriz de probabilidades para garantizar consistencia.
+
+> **Implementación.** Estos mercados se materializan en el modelo
+> `forecasts.models.Forecast` (campos `prob_*` y `top_score`). Los
+> mercados secundarios (remates, córners, tarjetas, faltas) viven en
+> `MarketForecast` (ver `docs/pronosticos_extra.md` §Mercados). El
+> Asian Handicap no está implementado; ver `docs/roadmap.md` §Mercados
+> de apuestas.
 
 ---
 
@@ -342,6 +356,10 @@ Se recomienda utilizar Kelly fraccional (25% o 50%) en lugar del Kelly completo 
 
 Nunca se debe apostar una cantidad fija ignorando la ventaja estimada.
 
+> **No implementado.** `value_bet_analysis` (`forecasts/engine.py`)
+> devuelve EV/edge y una recomendación, pero no calcula el tamaño
+> óptimo de la apuesta. Ver `docs/roadmap.md` §Gestión del bankroll.
+
 ---
 
 # Validación del modelo
@@ -358,6 +376,10 @@ Las métricas recomendadas son:
 * Closing Line Value (CLV).
 
 Un modelo rentable debe estar bien calibrado además de generar beneficios.
+
+> **No implementado.** No existe ningún módulo de backtesting ni
+> métricas de calibración en el código; ver `docs/roadmap.md`
+> §Validación del modelo.
 
 ---
 
@@ -392,6 +414,9 @@ Las futuras mejoras pueden incluir:
 * Machine Learning para la estimación de λ.
 
 Estas variables pueden mejorar progresivamente la precisión sin alterar la estructura general del sistema.
+
+> **No implementado.** Ver `docs/roadmap.md` §Mejoras del modelo de goles
+> esperados y §Variables contextuales.
 
 ---
 

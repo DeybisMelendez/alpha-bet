@@ -7,7 +7,12 @@ from django.utils import timezone
 
 from api_client.client import ApiFootballClient
 from api_client.models import BackfillJob
-from api_client.sync import ensure_competition, ensure_team, save_match
+from api_client.sync import (
+    ensure_competition,
+    ensure_team,
+    save_match,
+    save_match_statistics,
+)
 from elo.engine import (
     apply_elo_update,
     process_pending_matches,
@@ -101,6 +106,15 @@ class Command(BaseCommand):
             "--no-recompute",
             action="store_true",
             help="No recalibrar LeagueStrength tras procesar Elo.",
+        )
+        parser.add_argument(
+            "--fetch-stats",
+            action="store_true",
+            help=(
+                "Descargar también las estadísticas por partido "
+                "(remates, córners, ...). Costoso: una petición extra "
+                "por partido finalizado. Por defecto omitido en backfill."
+            ),
         )
 
     def handle(self, *args, **options):
@@ -254,7 +268,7 @@ class Command(BaseCommand):
                 break
 
             self._process_job(
-                job, client, rate_limit, stats, no_elo,
+                job, client, rate_limit, stats, no_elo, options["fetch_stats"],
             )
             request_count += 1
             time.sleep(rate_limit)
@@ -262,7 +276,7 @@ class Command(BaseCommand):
         self._print_summary(stats, request_count)
         self._post_load(options)
 
-    def _process_job(self, job, client, rate_limit, stats, no_elo):
+    def _process_job(self, job, client, rate_limit, stats, no_elo, fetch_stats):
         comp = job.competition
         season = job.season
         name = comp.name or str(comp.id_api)
@@ -309,7 +323,9 @@ class Command(BaseCommand):
         self.stdout.write(f"    {len(fixtures)} partidos obtenidos.")
         for fx in fixtures:
             try:
-                self._save_fixture(fx, comp, season, stats)
+                self._save_fixture(
+                    fx, comp, season, stats, client, fetch_stats
+                )
             except Exception as exc:
                 stats["save_errors"] += 1
                 self.stderr.write(self.style.ERROR(
@@ -341,7 +357,7 @@ class Command(BaseCommand):
                     "Error aplicando Elo al partido %s", match.id_api
                 )
 
-    def _save_fixture(self, fx, competition, season, stats):
+    def _save_fixture(self, fx, competition, season, stats, client, fetch_stats):
         league = fx.get("league", {}) or {}
         league_data = {"league": league, "country": {}}
         comp, _ = ensure_competition(league_data, season)
@@ -380,6 +396,21 @@ class Command(BaseCommand):
         else:
             stats["matches_updated"] += 1
 
+        # Estadísticas opcionales (costosas); docs/api.md §Estadísticas.
+        # Solo cuando el partido ya finaliza y el usuario lo solicita.
+        if fetch_stats and match.is_finished:
+            try:
+                stats.setdefault("stats_saved", 0)
+                stats["stats_saved"] += save_match_statistics(
+                    match, client, fixture_data=fx
+                )
+            except Exception as exc:
+                stats.setdefault("stats_errors", 0)
+                stats["stats_errors"] += 1
+                logger.warning(
+                    "Error guardando stats de %s: %s", match.id_api, exc
+                )
+
     def _print_summary(self, stats, request_count):
         self.stdout.write(self.style.SUCCESS(
             f"\nResumen de backfill:\n"
@@ -390,6 +421,8 @@ class Command(BaseCommand):
             f"{stats['matches_updated']} actualizados\n"
             f"  Equipos: {stats['teams_new']} nuevos, "
             f"{stats['teams_existing']} existentes\n"
+            f"  Stats: {stats.get('stats_saved', 0)} guardadas "
+            f"({stats.get('stats_errors', 0)} errores)\n"
             f"  Errores API: {stats['api_errors']}, "
             f"Errores guardado: {stats['save_errors']}"
         ))

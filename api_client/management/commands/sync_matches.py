@@ -4,7 +4,12 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from api_client.client import ApiFootballClient
-from api_client.sync import ensure_competition, ensure_team, save_match
+from api_client.sync import (
+    ensure_competition,
+    ensure_team,
+    save_match,
+    save_match_statistics,
+)
 from elo.engine import apply_elo_update
 from forecasts.engine import generate_forecast
 from teams.models import Competition
@@ -41,11 +46,17 @@ class Command(BaseCommand):
             action="store_true",
             help="No generar pronósticos tras sincronizar.",
         )
+        parser.add_argument(
+            "--no-stats",
+            action="store_true",
+            help="No descargar estadísticas del partido (remates, córners, etc.).",
+        )
 
     def handle(self, *args, **options):
         client = ApiFootballClient()
         no_elo = options["no_elo"]
         no_forecasts = options["no_forecasts"]
+        no_stats = options["no_stats"]
         days_back = options["days_back"]
         days_ahead = options["days_ahead"]
 
@@ -72,6 +83,7 @@ class Command(BaseCommand):
             "elo_processed": 0,
             "forecasts_generated": 0,
             "forecasts_fallback": 0,
+            "stats_saved": 0,
             "skipped": 0,
             "errors": 0,
         }
@@ -98,7 +110,7 @@ class Command(BaseCommand):
                 try:
                     self._process_fixture(
                         fx, league, season_str,
-                        no_elo, no_forecasts, stats,
+                        no_elo, no_forecasts, no_stats, stats, client,
                     )
                 except Exception as exc:
                     stats["errors"] += 1
@@ -113,12 +125,13 @@ class Command(BaseCommand):
             f"Elo: {stats['elo_processed']} | "
             f"Pronósticos: {stats['forecasts_generated']} "
             f"({stats['forecasts_fallback']} fallback) | "
+            f"Stats: {stats['stats_saved']} | "
             f"Omitidos (no tracked): {stats['skipped']} | "
             f"Errores: {stats['errors']}"
         ))
 
     def _process_fixture(self, fx, league, season_str,
-                         no_elo, no_forecasts, stats):
+                         no_elo, no_forecasts, no_stats, stats, client):
         competition, _ = ensure_competition(
             {"league": league, "country": {}}, season_str
         )
@@ -158,6 +171,19 @@ class Command(BaseCommand):
             except Exception as exc:
                 self.stderr.write(self.style.ERROR(
                     f"  Error Elo en partido {match.id_api}: {exc}"
+                ))
+
+        # Estadísticas del partido (remates, córners, posesión, etc.).
+        # docs/api.md: tras finalizar el encuentro se descargan todas
+        # las estadísticas disponibles. Si fallara (plan Free en algunas
+        # competiciones) se atrapa para no romper el sync de partidos.
+        if not no_stats and match.is_finished:
+            try:
+                saved = save_match_statistics(match, client, fixture_data=fx)
+                stats["stats_saved"] += saved
+            except Exception as exc:
+                self.stderr.write(self.style.ERROR(
+                    f"  Error stats en partido {match.id_api}: {exc}"
                 ))
 
         if not no_forecasts and match.is_scheduled:

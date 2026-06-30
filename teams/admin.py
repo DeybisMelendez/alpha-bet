@@ -5,9 +5,9 @@ from teams.models import Competition, Team, TeamCompetition
 
 @admin.register(Competition)
 class CompetitionAdmin(admin.ModelAdmin):
-    list_display = ("code", "name", "area_name", "league_type", "current_season", "team_count")
+    list_display = ("code", "name", "kind", "home_advantage", "area_name", "league_type", "current_season", "team_count")
     list_display_links = ("code", "name")
-    list_filter = ("league_type", "area_name", "current_season")
+    list_filter = ("kind", "league_type", "area_name", "current_season")
     search_fields = ("name", "code", "area_name", "area_code")
     ordering = ("name",)
     fieldsets = (
@@ -18,7 +18,7 @@ class CompetitionAdmin(admin.ModelAdmin):
             "fields": ("area_name", "area_code"),
         }),
         ("Configuración", {
-            "fields": ("league_type", "current_season"),
+            "fields": ("league_type", "kind", "home_advantage", "current_season"),
         }),
     )
     readonly_fields = ("id_api",)
@@ -53,7 +53,7 @@ class TeamAdmin(admin.ModelAdmin):
             "fields": ("founded", "venue", "country"),
         }),
         ("Elo", {
-            "fields": ("elo", "matches_played"),
+            "fields": ("elo", "matches_played", "last_regressed_season"),
         }),
     )
     readonly_fields = ("id_api",)

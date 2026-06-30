@@ -10,8 +10,17 @@ from forecasts.engine import (
     value_bet_analysis,
 )
 from forecasts.forms import ForecastCalculateForm, ValueBetForm
-from forecasts.models import Forecast
+from forecasts.models import Forecast, MarketForecast
 from matches.models import Match
+from collections import OrderedDict
+
+
+def _secondary_markets(forecast):
+    """Agrupa los MarketForecast del pronóstico por mercado (label)."""
+    groups = OrderedDict()
+    for mf in forecast.markets.all().order_by("market", "selection"):
+        groups.setdefault(mf.get_market_display(), []).append(mf)
+    return groups
 
 
 def _build_matrix_context(xg_home, xg_away):
@@ -109,6 +118,7 @@ def forecast_detail(request, pk):
     )
 
     matrix_ctx = _build_matrix_context(forecast.xg_home, forecast.xg_away)
+    secondary_by_market = _secondary_markets(forecast)
 
     value_analysis = None
     if request.method == "POST":
@@ -123,6 +133,15 @@ def forecast_detail(request, pk):
                 "x2": cd.get("odd_x2"),
                 "12": cd.get("odd_12"),
                 "btts": cd.get("odd_btts"),
+                "score_home": cd.get("odd_score_home"),
+                "score_away": cd.get("odd_score_away"),
+                "over_05": cd.get("odd_over_05"),
+                "over_15": cd.get("odd_over_15"),
+                "over_25": cd.get("odd_over_25"),
+                "over_35": cd.get("odd_over_35"),
+                "over_45": cd.get("odd_over_45"),
+                "dnb_home": cd.get("odd_dnb_home"),
+                "dnb_away": cd.get("odd_dnb_away"),
             }
             if any(o is not None for o in odds.values()):
                 value_analysis = value_bet_analysis(matrix_ctx["markets"], odds)
@@ -133,6 +152,7 @@ def forecast_detail(request, pk):
         "forecast": forecast,
         "value_form": value_form,
         "value_analysis": value_analysis,
+        "secondary_by_market": secondary_by_market,
         **matrix_ctx,
     }
     return render(request, "forecasts/forecast_detail.html", context)
@@ -143,22 +163,64 @@ def forecast_calculate(request):
 
     No persiste nada: solo calcula y muestra el resultado. Útil para
     escenarios what-if y probar el modelo sin un partido en la DB.
+
+    Soporta sede neutral (anula localía) y factores de forma reciente
+    (multiplicativos sobre λ). Tras calcular, opcionalmente analiza
+    value bet contra cuotas ingresadas (ValueBetForm), igual que la
+    view de detalle.
     """
     if request.method == "POST":
         form = ForecastCalculateForm(request.POST)
         if form.is_valid():
+            cd = form.cleaned_data
             xg_home, xg_away = expected_goals_from_ratings(
-                form.cleaned_data["home_elo"],
-                form.cleaned_data["home_attack"],
-                form.cleaned_data["home_defense"],
-                form.cleaned_data["away_elo"],
-                form.cleaned_data["away_attack"],
-                form.cleaned_data["away_defense"],
-                home_advantage=form.cleaned_data["home_advantage"],
+                cd["home_elo"],
+                cd["home_attack"],
+                cd["home_defense"],
+                cd["away_elo"],
+                cd["away_attack"],
+                cd["away_defense"],
+                home_advantage=cd["home_advantage"],
+                is_neutral=cd["is_neutral"],
+                form_home=cd["form_home"],
+                form_away=cd["form_away"],
             )
             matrix_ctx = _build_matrix_context(xg_home, xg_away)
+
+            # Análisis de value bet opcional (cuotas en el mismo POST).
+            value_form = ValueBetForm(request.POST)
+            value_analysis = None
+            if value_form.is_valid():
+                vcd = value_form.cleaned_data
+                odds = {
+                    "home": vcd.get("odd_home"),
+                    "draw": vcd.get("odd_draw"),
+                    "away": vcd.get("odd_away"),
+                    "1x": vcd.get("odd_1x"),
+                    "x2": vcd.get("odd_x2"),
+                    "12": vcd.get("odd_12"),
+"btts": vcd.get("odd_btts"),
+                "score_home": vcd.get("odd_score_home"),
+                "score_away": vcd.get("odd_score_away"),
+                "over_05": vcd.get("odd_over_05"),
+                    "over_15": vcd.get("odd_over_15"),
+                    "over_25": vcd.get("odd_over_25"),
+                    "over_35": vcd.get("odd_over_35"),
+                    "over_45": vcd.get("odd_over_45"),
+                    "dnb_home": vcd.get("odd_dnb_home"),
+                    "dnb_away": vcd.get("odd_dnb_away"),
+                }
+                if any(o is not None for o in odds.values()):
+                    value_analysis = value_bet_analysis(
+                        matrix_ctx["markets"], odds
+                    )
+            else:
+                value_form = ValueBetForm()
+
             context = {
                 "form": form,
+                "value_form": value_form,
+                "value_analysis": value_analysis,
                 "xg_home": xg_home,
                 "xg_away": xg_away,
                 "calculated": True,
@@ -171,9 +233,10 @@ def forecast_calculate(request):
             )
     else:
         form = ForecastCalculateForm()
+        value_form = ValueBetForm()
 
     return render(
         request,
         "forecasts/forecast_calculate.html",
-        {"form": form, "calculated": False},
+        {"form": form, "value_form": ValueBetForm(), "calculated": False},
     )

@@ -40,7 +40,8 @@
         <span class="prob-value monospace">{% widthratio p_away 1 100 %}%</span>
     </div>
     <p class="text-muted small mt-1">
-        Resultado más probable: <strong>{{ forecast.match.home_team.name }} {{ top_i }} - {{ top_j }} {{ forecast.match.away_team.name }}</strong>
+        Marcador más probable:
+        <strong>{{ forecast.match.home_team.name }} {{ top_i }} - {{ top_j }} {{ forecast.match.away_team.name }}</strong>
         ({% widthratio top_prob 1 100 %}%)
     </p>
 </section>
@@ -48,27 +49,20 @@
 <section class="mt-2">
     <h2>Mercados de apuestas</h2>
     <p class="text-muted small">
-        Probabilidades del modelo para mercados derivados de la matriz Poisson.
+        Probabilidades del modelo derivadas de la matriz Poisson + Dixon-Coles.
         Compáralas con las cuotas de la casa en la sección Value Bet.
     </p>
-    <div class="grid">
+    <div class="grid grid-2">
         <article>
             <h3>Doble oportunidad y sin empate</h3>
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr>
-                        <td>1X (local o empate)</td>
-                        <td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>X2 (empate o visitante)</td>
-                        <td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>12 (sin empate)</td>
-                        <td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td>
-                    </tr>
+                    <tr><td>1X (local o empate)</td><td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td></tr>
+                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td></tr>
+                    <tr><td>12 (sin empate)</td><td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td></tr>
+                    <tr><td>DNB Local</td><td class="text-center monospace">{% widthratio markets.dnb_home 1 100 %}%</td></tr>
+                    <tr><td>DNB Visitante</td><td class="text-center monospace">{% widthratio markets.dnb_away 1 100 %}%</td></tr>
                 </tbody>
             </table>
         </article>
@@ -77,20 +71,69 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr>
-                        <td>Sí</td>
-                        <td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>No</td>
-                        <td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td>
-                    </tr>
+                    <tr><td>Sí</td><td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td></tr>
+                    <tr><td>No</td><td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
         </article>
+        <article>
+            <h3>Equipo marca</h3>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr><td>{{ forecast.match.home_team.name }} marca</td><td class="text-center monospace">{% widthratio markets.score_home 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.home_team.name }} no marca</td><td class="text-center monospace">{% widthratio markets.score_home_no 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.away_team.name }} marca</td><td class="text-center monospace">{% widthratio markets.score_away 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.away_team.name }} no marca</td><td class="text-center monospace">{% widthratio markets.score_away_no 1 100 %}%</td></tr>
+                </tbody>
+            </table>
+            <p class="text-muted small">P(equipo marca al menos un gol).</p>
+        </article>
+        <article>
+            <h3>Over / Under (total de goles)</h3>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Over</th><th class="text-center">Under</th></tr></thead>
+                <tbody>
+                    <tr><td>0.5</td><td class="text-center monospace">{% widthratio markets.over_05 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_05 1 100 %}%</td></tr>
+                    <tr><td>1.5</td><td class="text-center monospace">{% widthratio markets.over_15 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_15 1 100 %}%</td></tr>
+                    <tr><td>2.5</td><td class="text-center monospace">{% widthratio markets.over_25 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_25 1 100 %}%</td></tr>
+                    <tr><td>3.5</td><td class="text-center monospace">{% widthratio markets.over_35 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_35 1 100 %}%</td></tr>
+                    <tr><td>4.5</td><td class="text-center monospace">{% widthratio markets.over_45 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_45 1 100 %}%</td></tr>
+                </tbody>
+            </table>
+        </article>
     </div>
 </section>
+
+{% if secondary_by_market %}
+<section class="mt-2">
+    <h2>Mercados secundarios</h2>
+    <p class="text-muted small">
+        Estimaciones (λ y probabilidad) derivadas de estadísticas históricas
+        de remates, córners, tarjetas y faltas (docs/pronosticos_extra.md).
+    </p>
+    <div class="grid grid-2">
+        {% for mlabel, mrows in secondary_by_market.items %}
+        <article>
+            <h3>{{ mlabel }}</h3>
+            <table class="compact">
+                <thead><tr><th>Selección</th><th class="text-center">λ</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    {% for mr in mrows %}
+                    <tr>
+                        <td>{{ mr.label }}</td>
+                        <td class="text-center monospace">{{ mr.lam|floatformat:2 }}</td>
+                        <td class="text-center monospace">{% widthratio mr.prob 1 100 %}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 
 <section class="mt-2">
     <h2>Value Bet</h2>
@@ -145,6 +188,54 @@
                            value="{{ value_form.odd_btts.value|default_if_none:'' }}"
                            placeholder="ej. 1.80">
                 </label>
+                <label>{{ value_form.odd_score_home.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_score_home"
+                           value="{{ value_form.odd_score_home.value|default_if_none:'' }}"
+                           placeholder="ej. 1.30">
+                </label>
+                <label>{{ value_form.odd_score_away.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_score_away"
+                           value="{{ value_form.odd_score_away.value|default_if_none:'' }}"
+                           placeholder="ej. 1.55">
+                </label>
+            </div>
+        </details>
+        <details>
+            <summary><strong>Over / Under</strong></summary>
+            <div class="grid">
+                <label>{{ value_form.odd_over_05.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_over_05"
+                           value="{{ value_form.odd_over_05.value|default_if_none:'' }}">
+                </label>
+                <label>{{ value_form.odd_over_15.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_over_15"
+                           value="{{ value_form.odd_over_15.value|default_if_none:'' }}">
+                </label>
+                <label>{{ value_form.odd_over_25.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_over_25"
+                           value="{{ value_form.odd_over_25.value|default_if_none:'' }}">
+                </label>
+                <label>{{ value_form.odd_over_35.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_over_35"
+                           value="{{ value_form.odd_over_35.value|default_if_none:'' }}">
+                </label>
+                <label>{{ value_form.odd_over_45.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_over_45"
+                           value="{{ value_form.odd_over_45.value|default_if_none:'' }}">
+                </label>
+            </div>
+        </details>
+        <details>
+            <summary><strong>Draw No Bet</strong></summary>
+            <div class="grid">
+                <label>{{ value_form.odd_dnb_home.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_dnb_home"
+                           value="{{ value_form.odd_dnb_home.value|default_if_none:'' }}">
+                </label>
+                <label>{{ value_form.odd_dnb_away.label }}
+                    <input type="number" step="0.01" min="1.01" name="odd_dnb_away"
+                           value="{{ value_form.odd_dnb_away.value|default_if_none:'' }}">
+                </label>
             </div>
         </details>
         {% if value_form.non_field_errors %}
@@ -171,15 +262,7 @@
             {% for row in value_analysis.rows %}
             {% if row.odd %}
             <tr>
-                <td>
-                    {% if row.label == 'home' %}Local (1)
-                    {% elif row.label == 'draw' %}Empate (X)
-                    {% elif row.label == 'away' %}Visitante (2)
-                    {% elif row.label == '1x' %}Doble op. 1X
-                    {% elif row.label == 'x2' %}Doble op. X2
-                    {% elif row.label == '12' %}Sin empate (12)
-                    {% elif row.label == 'btts' %}Ambos marcan{% endif %}
-                </td>
+                <td>{{ row.label }}</td>
                 <td class="monospace">{{ row.odd|floatformat:2 }}</td>
                 <td class="monospace">{% widthratio row.prob 1 100 %}%</td>
                 <td class="monospace">{% widthratio row.implied_prob 1 100 %}%</td>
@@ -214,15 +297,7 @@
     {% if value_analysis.recommendation %}
     <p>
         Recomendación:
-        <strong>
-            {% if value_analysis.recommendation.label == 'home' %}Local (1)
-            {% elif value_analysis.recommendation.label == 'draw' %}Empate (X)
-            {% elif value_analysis.recommendation.label == 'away' %}Visitante (2)
-            {% elif value_analysis.recommendation.label == '1x' %}Doble op. 1X
-            {% elif value_analysis.recommendation.label == 'x2' %}Doble op. X2
-            {% elif value_analysis.recommendation.label == '12' %}Sin empate (12)
-            {% elif value_analysis.recommendation.label == 'btts' %}Ambos marcan{% endif %}
-        </strong>
+        <strong>{{ value_analysis.recommendation.label }}</strong>
         <span class="badge badge-success small">VALUE</span>
         · EV {% widthratio value_analysis.recommendation.ev 1 100 %}%
     </p>
@@ -252,20 +327,26 @@
 
     <aside>
         <h2>Forma reciente</h2>
-        {% if forecast.form_home.attack_rating is not None and forecast.is_fallback == False %}
+        {% if forecast.form_home.attack_home is not None and forecast.is_fallback == False %}
         <p>
             <strong>{{ forecast.match.home_team.name }}:</strong>
-            ataque {{ forecast.form_home.attack_rating|floatformat:2 }}
-            · defensa {{ forecast.form_home.defense_rating|floatformat:2 }}
+            ataque (casa/visita)
+            {{ forecast.form_home.attack_home|floatformat:2 }} / {{ forecast.form_home.attack_away|floatformat:2 }}
+            · defensa (casa/visita)
+            {{ forecast.form_home.defense_home|floatformat:2 }} / {{ forecast.form_home.defense_away|floatformat:2 }}
+            · forma {{ forecast.form_home.form_factor|floatformat:2 }}
         </p>
         {% else %}
         <p class="text-muted small">{{ forecast.match.home_team.name }}: historial {{ forecast.form_home.history_count|default:"0" }} partidos.</p>
         {% endif %}
-        {% if forecast.form_away.attack_rating is not None and forecast.is_fallback == False %}
+        {% if forecast.form_away.attack_home is not None and forecast.is_fallback == False %}
         <p>
             <strong>{{ forecast.match.away_team.name }}:</strong>
-            ataque {{ forecast.form_away.attack_rating|floatformat:2 }}
-            · defensa {{ forecast.form_away.defense_rating|floatformat:2 }}
+            ataque (casa/visita)
+            {{ forecast.form_away.attack_home|floatformat:2 }} / {{ forecast.form_away.attack_away|floatformat:2 }}
+            · defensa (casa/visita)
+            {{ forecast.form_away.defense_home|floatformat:2 }} / {{ forecast.form_away.defense_away|floatformat:2 }}
+            · forma {{ forecast.form_away.form_factor|floatformat:2 }}
         </p>
         {% else %}
         <p class="text-muted small">{{ forecast.match.away_team.name }}: historial {{ forecast.form_away.history_count|default:"0" }} partidos.</p>

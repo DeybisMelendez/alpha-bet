@@ -64,6 +64,14 @@ Guardar:
 * temporada actual
 * fortaleza inicial (Elo base)
 
+> **Implementación.** Modelo `teams.models.Competition`. La "fortaleza
+> inicial" vive en `LeagueStrength.average_elo` (modelo separado, clave
+> `competition × season`) y en el catálogo semilla
+> `settings.API_FOOTBALL_LEAGUES_BY_ID[id]["initial_elo"]`. El campo
+> `home_advantage` guarda la ventaja de localía por competición y `kind`
+> clasifica el nivel competitivo (liga/copa/continental/internacional/
+> mundial/eliminatorias/amistoso).
+
 ---
 
 ## Equipos
@@ -76,6 +84,15 @@ Guardar:
 * país
 * estadio
 * logo
+* año de fundación
+* elo actual
+* partidos jugados
+* temporada de última regresión Elo
+
+> **Implementación.** Modelo `teams.models.Team` (campos `founded`,
+> `elo`, `matches_played`, `last_regressed_season`). El vínculo
+> equipo ↔ competición ↔ temporada vive en `TeamCompetition` (la
+> temporada es un `CharField`, no un modelo aparte).
 
 ---
 
@@ -99,6 +116,14 @@ Cada partido debe contener:
 
 Nunca eliminar partidos históricos.
 
+> **Implementación.** Modelo `matches.models.Match`. El "tiempo extra"
+> y los "penales" no son campos separados: `status_short` (`FT/AET/PEN`)
+> los codifica, y `home_goals/away_goals` ya incluyen los goles del
+> tiempo extra (de `score.fulltime`). Otros campos relevantes:
+> `round`, `is_neutral`, `venue`, `referee`, `importance`,
+> `rest_days_home/away`, `elo_processed`, `home_elo_before/after`,
+> `away_elo_before/after`.
+
 ---
 
 # Estadísticas del partido
@@ -119,6 +144,8 @@ Una vez finalizado el encuentro deben descargarse todas las estadísticas dispon
 * Al arco
 * Fuera
 * Bloqueados
+* Dentro del área
+* Fuera del área
 
 ---
 
@@ -151,6 +178,19 @@ Aunque inicialmente algunas variables no formen parte del modelo, deben almacena
 
 ---
 
+## Pases
+
+* Pases totales
+* Pases completados
+
+> **Implementación.** Modelo `stats.models.MatchStatistics` (un
+> registro por equipo y partido, clave `unique_together = (match,
+> team)`). Cubre goles por tiempo, remates (incluyendo dentro/fuera del
+> área), posesión, córners, offsides, faltas, tarjetas, atajadas y
+> pases.
+
+---
+
 # Información contextual
 
 Antes del partido registrar:
@@ -163,6 +203,11 @@ Antes del partido registrar:
 * disponibilidad general del equipo (lesionados/suspendidos como indicador agregado).
 
 Estas variables podrán utilizarse posteriormente para ajustar los modelos predictivos.
+
+> **Implementación.** De la lista anterior, `Match.referee`, `Match.venue`,
+> `Match.is_neutral`, `Match.rest_days_home/away` y `Match.importance`
+> están implementados. La disponibilidad agregada (lesionados/suspendidos)
+> **no** se almacena; ver `docs/roadmap.md` §Variables contextuales.
 
 ---
 
@@ -199,6 +244,12 @@ Todo el procesamiento ocurre dentro de Alpha Bet.
 # Estadísticas históricas
 
 Después de cada partido se actualizan automáticamente los promedios históricos.
+
+> **Implementación.** Los promedios no se persisten en tablas
+> dedicadas: se recalculan bajo demanda con ponderación temporal
+> exponencial en `forecasts/engine.py` (`attack_defense_ratings`) y
+> `forecasts/secondary.py`. Ver `docs/roadmap.md` §Estadísticas
+> derivadas y promedios móviles para el estado de la persistencia.
 
 ## Ofensivas
 
@@ -274,6 +325,10 @@ Calcular indicadores como:
 
 Estos indicadores ayudan a detectar equipos con rendimientos excepcionalmente altos o bajos que podrían no ser sostenibles.
 
+> **No implementado.** Las estadísticas derivadas y los promedios móviles
+> no se persisten; se calculan on-the-fly. Ver `docs/roadmap.md`
+> §Estadísticas derivadas y promedios móviles.
+
 ---
 
 # Mercados soportados
@@ -331,32 +386,31 @@ Todos los modelos reutilizan la misma información histórica.
 La estructura recomendada es:
 
 ```text
-Competition
-        │
-        ▼
-Season
-        │
-        ▼
-Team
-        │
-        ▼
-Match
-        │
- ┌──────┴─────────┐
- ▼                ▼
-MatchStatistics   EloHistory
- │
- ▼
-TeamStatistics
- │
- ▼
-RecentForm
- │
- ▼
-Forecast
+Competition ──┐
+              ├── TeamCompetition ── Team
+              │                         │
+              │                  ┌──────┴──────┐
+              │                  ▼             ▼
+              │              Match ──── MatchStatistics
+              │                  │
+              │                  ├── EloLog
+              │                  └── Forecast ── MarketForecast
+              ▼
+         LeagueStrength
+              │
+              ▼
+         BackfillJob
+
+ApiResponseCache (independiente)
 ```
 
 Cada módulo tiene una única responsabilidad y evita duplicar información.
+
+> **Implementación.** No existen modelos `Season`, `EloHistory`,
+> `TeamStatistics`, `TeamRecentForm` ni `RecentForm` (ver `docs/roadmap.md`
+> §Estado de los modelos de datos). Los promedios ofensivos/defensivos y
+> la forma reciente se calculan bajo demanda en `forecasts/engine.py`
+> y se almacenan solo como snapshot JSON en `Forecast.form_home/away`.
 
 ---
 
@@ -380,6 +434,11 @@ Todo cálculo estadístico debe realizarse localmente.
 3. Actualizar estadísticas únicamente cuando termina un partido.
 4. Conservar siempre el historial completo.
 5. Separar claramente la importación de datos del motor de predicción.
+
+> **Nota.** Las recomendaciones 1 y 2 describen el estado **deseado**.
+> Hoy los promedios se recalculan bajo demanda (sin persistir) porque
+> el dataset es pequeño; ver `docs/roadmap.md` §Estadísticas derivadas
+> y promedios móviles.
 
 ---
 

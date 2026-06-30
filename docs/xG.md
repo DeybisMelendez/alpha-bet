@@ -1,5 +1,3 @@
-# goles_esperados.md
-
 # Sistema de Estimación de Goles Esperados (λ)
 
 ## Objetivo
@@ -83,6 +81,12 @@ Forma
 
 Así se consigue un equilibrio entre estabilidad y capacidad de reacción.
 
+`Forma5` y `Forma20` no son promedios de goles: son cocientes
+`puntos_reales / puntos_esperados` (ratio de rendimiento). El factor
+resultante se acota a `1 ± FORECAST_FORM_MAX_IMPACT (0.20)` para que la
+forma nunca desplace el λ más de un 20%, manteniendo las estadísticas
+históricas como señal dominante.
+
 ---
 
 # Ponderación temporal
@@ -143,6 +147,11 @@ de goles anotados
 
 Calculado independientemente para partidos como local y visitante.
 
+Los goles se ajustan por la fuerza del rival (ver §Ajuste por dificultad
+del rival) **antes** de promediar: el ataque es el promedio ponderado de
+goles *ajustados*. Así, marcar 3 a un equipo con Elo 1900 eleva más el
+rating de ataque que marcar 3 a uno con Elo 1400.
+
 ---
 
 # Estimación inicial de la defensa
@@ -158,7 +167,8 @@ Promedio ponderado
 de goles recibidos
 ```
 
-También separado por condición de local o visitante.
+También separado por condición de local o visitante. Los goles recibidos
+se ajustan simétricamente por el Elo previo del rival.
 
 ---
 
@@ -172,6 +182,14 @@ Para estimar los goles esperados del equipo local se utiliza:
 =
 
 √(AtaqueLocal × DefensaVisitante)
+
+×
+
+FactorElo
+
+×
+
+FactorForma
 ```
 
 Para el visitante:
@@ -182,9 +200,21 @@ Para el visitante:
 =
 
 √(AtaqueVisitante × DefensaLocal)
+
+×
+
+FactorElo
+
+×
+
+FactorForma
 ```
 
 El promedio geométrico representa mejor la naturaleza multiplicativa del proceso de generación de goles que un promedio aritmético.
+
+`FactorElo` se aplica a partir del diff `EloLocal + Localía − EloVisitante`
+(ver §Corrección mediante Elo y §Corrección por localía); `FactorForma` es
+el factor de forma reciente acotado (§Forma reciente).
 
 ---
 
@@ -209,6 +239,11 @@ La localía modifica únicamente al equipo que juega en casa.
 No debe aplicarse una bonificación fija de goles.
 
 Es preferible utilizar un pequeño factor multiplicativo calibrado históricamente para cada competición.
+
+En la implementación, la localía se integra dentro del diff de Elo que
+alimenta `FactorElo`: `diff = (EloLocal + Localía) − EloVisitante`. No
+existe un multiplicador de localía separado sobre λ. Para sede neutral
+(`Match.is_neutral`) la localía se anula (Localía = 0).
 
 ---
 
@@ -237,6 +272,18 @@ El λ definitivo es el resultado de combinar:
 Todos estos factores deben actuar de forma gradual.
 
 Ninguno debe modificar el resultado de manera desproporcionada.
+
+---
+
+# Fallback sin historial suficiente
+
+Cuando algún equipo no tiene muestra suficiente (`< FORECAST_MIN_HISTORY`
+partidos finalizados, o `< FORECAST_MIN_VENUE_HISTORY` en su condición
+local/visitante, o `FORECAST_STALE_MONTHS` sin jugar), el motor no puede
+estimar ataque/defensa fiables y recurre a `expected_goals_elo_only`:
+parte de un λ baseline (`FORECAST_FALLBACK_BASELINE = 1.35`) y lo
+desplaza solo con la diferencia Elo. El pronóstico queda marcado con
+`Forecast.is_fallback = True` para señalar que es de menor confianza.
 
 ---
 
@@ -276,6 +323,9 @@ La calibración es tan importante como la precisión.
 
 Un modelo bien calibrado genera probabilidades fiables incluso cuando no acierta todos los resultados.
 
+> **No implementado.** Estas métricas no existen en el código; ver
+> `docs/roadmap.md` §Validación del modelo.
+
 ---
 
 # Mejoras futuras
@@ -296,6 +346,9 @@ Entre las mejoras recomendadas se encuentran:
 * Importancia competitiva del encuentro.
 
 Estas variables pueden añadirse progresivamente conforme se disponga de datos más completos.
+
+> **No implementado.** Ver `docs/roadmap.md` §Mejoras del modelo de goles
+> esperados y §Variables contextuales para el estado detallado.
 
 ---
 

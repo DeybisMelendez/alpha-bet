@@ -5,7 +5,9 @@
 <h1>Calcular pronóstico</h1>
 <p class="text-muted">
     Ingrese los ratings manualmente para calcular el pronóstico sin
-    depender de un partido en la base de datos.
+    depender de un partido en la base de datos. Los ratings de ataque y
+    defensa corresponden a la condición (local/visitante); la combinación
+    usa λLocal = √(ataque_local × defensa_visitante).
 </p>
 
 <form method="post">
@@ -14,26 +16,127 @@
         <fieldset>
             <legend>Local</legend>
             {{ form.home_elo.label_tag }}{{ form.home_elo }}
+            {% if form.home_elo.help_text %}<small class="text-muted">{{ form.home_elo.help_text }}</small>{% endif %}
             {{ form.home_attack.label_tag }}{{ form.home_attack }}
+            {% if form.home_attack.help_text %}<small class="text-muted">{{ form.home_attack.help_text }}</small>{% endif %}
             {{ form.home_defense.label_tag }}{{ form.home_defense }}
+            {% if form.home_defense.help_text %}<small class="text-muted">{{ form.home_defense.help_text }}</small>{% endif %}
         </fieldset>
         <fieldset>
             <legend>Visitante</legend>
             {{ form.away_elo.label_tag }}{{ form.away_elo }}
+            {% if form.away_elo.help_text %}<small class="text-muted">{{ form.away_elo.help_text }}</small>{% endif %}
             {{ form.away_attack.label_tag }}{{ form.away_attack }}
+            {% if form.away_attack.help_text %}<small class="text-muted">{{ form.away_attack.help_text }}</small>{% endif %}
             {{ form.away_defense.label_tag }}{{ form.away_defense }}
+            {% if form.away_defense.help_text %}<small class="text-muted">{{ form.away_defense.help_text }}</small>{% endif %}
         </fieldset>
     </div>
-    {{ form.home_advantage.label_tag }}{{ form.home_advantage }}
-    {% if form.home_advantage.help_text %}
-    <small class="text-muted">{{ form.home_advantage.help_text }}</small>
-    {% endif %}
+    <div class="grid">
+        <fieldset>
+            <legend>Contexto</legend>
+            {{ form.home_advantage.label_tag }}{{ form.home_advantage }}
+            {% if form.home_advantage.help_text %}<small class="text-muted">{{ form.home_advantage.help_text }}</small>{% endif %}
+            <label>{{ form.is_neutral.label }}
+                {{ form.is_neutral }}
+            </label>
+            {% if form.is_neutral.help_text %}<small class="text-muted">{{ form.is_neutral.help_text }}</small>{% endif %}
+        </fieldset>
+        <fieldset>
+            <legend>Forma reciente</legend>
+            {{ form.form_home.label_tag }}{{ form.form_home }}
+            {% if form.form_home.help_text %}<small class="text-muted">{{ form.form_home.help_text }}</small>{% endif %}
+            {{ form.form_away.label_tag }}{{ form.form_away }}
+            {% if form.form_away.help_text %}<small class="text-muted">{{ form.form_away.help_text }}</small>{% endif %}
+        </fieldset>
+    </div>
 
     {% if form.non_field_errors %}
     <ul class="text-muted small">
         {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
     </ul>
     {% endif %}
+
+    <details>
+        <summary><strong>Cuotas (value bet)</strong></summary>
+        <p class="text-muted small">Las cuotas no se guardan; el análisis es solo para este cálculo.</p>
+        <div class="grid">
+            <label>{{ value_form.odd_home.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_home"
+                       value="{{ value_form.odd_home.value|default_if_none:'' }}"
+                       placeholder="ej. 2.10">
+            </label>
+            <label>{{ value_form.odd_draw.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_draw"
+                       value="{{ value_form.odd_draw.value|default_if_none:'' }}"
+                       placeholder="ej. 3.30">
+            </label>
+            <label>{{ value_form.odd_away.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_away"
+                       value="{{ value_form.odd_away.value|default_if_none:'' }}"
+                       placeholder="ej. 3.40">
+            </label>
+            <label>{{ value_form.odd_1x.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_1x"
+                       value="{{ value_form.odd_1x.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_x2.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_x2"
+                       value="{{ value_form.odd_x2.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_12.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_12"
+                       value="{{ value_form.odd_12.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_btts.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_btts"
+                       value="{{ value_form.odd_btts.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_score_home.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_score_home"
+                       value="{{ value_form.odd_score_home.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_score_away.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_score_away"
+                       value="{{ value_form.odd_score_away.value|default_if_none:'' }}">
+            </label>
+        </div>
+        <div class="grid">
+            <label>{{ value_form.odd_over_05.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_over_05"
+                       value="{{ value_form.odd_over_05.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_over_15.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_over_15"
+                       value="{{ value_form.odd_over_15.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_over_25.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_over_25"
+                       value="{{ value_form.odd_over_25.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_over_35.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_over_35"
+                       value="{{ value_form.odd_over_35.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_over_45.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_over_45"
+                       value="{{ value_form.odd_over_45.value|default_if_none:'' }}">
+            </label>
+        </div>
+        <div class="grid">
+            <label>{{ value_form.odd_dnb_home.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_dnb_home"
+                       value="{{ value_form.odd_dnb_home.value|default_if_none:'' }}">
+            </label>
+            <label>{{ value_form.odd_dnb_away.label }}
+                <input type="number" step="0.01" min="1.01" name="odd_dnb_away"
+                       value="{{ value_form.odd_dnb_away.value|default_if_none:'' }}">
+            </label>
+        </div>
+        {% if value_form.non_field_errors %}
+        <p class="text-muted small">{{ value_form.non_field_errors }}</p>
+        {% endif %}
+    </details>
 
     <button type="submit">Calcular</button>
 </form>
@@ -67,34 +170,27 @@
         <span class="prob-value monospace">{% widthratio p_away 1 100 %}%</span>
     </div>
     <p class="text-muted small mt-1">
-        Resultado más probable: <strong>{{ top_i }} - {{ top_j }}</strong>
-        ({% widthratio top_prob 1 100 %}%)
+        Marcador más probable: <strong>{{ markets.top_score }}</strong>
+        ({% widthratio markets.top_score_prob 1 100 %}%)
     </p>
 </section>
 
 <section class="mt-2">
     <h3>Mercados de apuestas</h3>
     <p class="text-muted small">
-        Probabilidades del modelo para mercados derivados de la matriz Poisson.
+        Probabilidades del modelo derivadas de la matriz Poisson + Dixon-Coles.
     </p>
-    <div class="grid">
+    <div class="grid grid-2">
         <article>
-            <h4>Doble oportunidad y sin empate</h4>
+            <h4>Doble oportunidad, sin empate y DNB</h4>
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr>
-                        <td>1X (local o empate)</td>
-                        <td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>X2 (empate o visitante)</td>
-                        <td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>12 (sin empate)</td>
-                        <td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td>
-                    </tr>
+                    <tr><td>1X (local o empate)</td><td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td></tr>
+                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td></tr>
+                    <tr><td>12 (sin empate)</td><td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td></tr>
+                    <tr><td>DNB Local</td><td class="text-center monospace">{% widthratio markets.dnb_home 1 100 %}%</td></tr>
+                    <tr><td>DNB Visitante</td><td class="text-center monospace">{% widthratio markets.dnb_away 1 100 %}%</td></tr>
                 </tbody>
             </table>
         </article>
@@ -103,20 +199,105 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr>
-                        <td>Sí</td>
-                        <td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td>
-                    </tr>
-                    <tr>
-                        <td>No</td>
-                        <td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td>
-                    </tr>
+                    <tr><td>Sí</td><td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td></tr>
+                    <tr><td>No</td><td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
         </article>
+        <article>
+            <h4>Equipo marca</h4>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
+                <tbody>
+                    <tr><td>Local marca</td><td class="text-center monospace">{% widthratio markets.score_home 1 100 %}%</td></tr>
+                    <tr><td>Local no marca</td><td class="text-center monospace">{% widthratio markets.score_home_no 1 100 %}%</td></tr>
+                    <tr><td>Visitante marca</td><td class="text-center monospace">{% widthratio markets.score_away 1 100 %}%</td></tr>
+                    <tr><td>Visitante no marca</td><td class="text-center monospace">{% widthratio markets.score_away_no 1 100 %}%</td></tr>
+                </tbody>
+            </table>
+            <p class="text-muted small">P(equipo marca al menos un gol).</p>
+        </article>
+        <article>
+            <h4>Over / Under (total de goles)</h4>
+            <table class="compact">
+                <thead><tr><th>Mercado</th><th class="text-center">Over</th><th class="text-center">Under</th></tr></thead>
+                <tbody>
+                    <tr><td>0.5</td><td class="text-center monospace">{% widthratio markets.over_05 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_05 1 100 %}%</td></tr>
+                    <tr><td>1.5</td><td class="text-center monospace">{% widthratio markets.over_15 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_15 1 100 %}%</td></tr>
+                    <tr><td>2.5</td><td class="text-center monospace">{% widthratio markets.over_25 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_25 1 100 %}%</td></tr>
+                    <tr><td>3.5</td><td class="text-center monospace">{% widthratio markets.over_35 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_35 1 100 %}%</td></tr>
+                    <tr><td>4.5</td><td class="text-center monospace">{% widthratio markets.over_45 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_45 1 100 %}%</td></tr>
+                </tbody>
+            </table>
+        </article>
     </div>
 </section>
+
+{% if value_analysis %}
+<section class="mt-2">
+    <h3>Value Bet</h3>
+    <table class="compact mt-1">
+        <thead>
+            <tr>
+                <th>Mercado</th>
+                <th>Cuota</th>
+                <th>Prob. modelo</th>
+                <th>Prob. implícita</th>
+                <th>Cuota justa</th>
+                <th>Edge</th>
+                <th>EV</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in value_analysis.rows %}
+            {% if row.odd %}
+            <tr>
+                <td>{{ row.label }}</td>
+                <td class="monospace">{{ row.odd|floatformat:2 }}</td>
+                <td class="monospace">{% widthratio row.prob 1 100 %}%</td>
+                <td class="monospace">{% widthratio row.implied_prob 1 100 %}%</td>
+                <td class="monospace">{{ row.fair_odds|floatformat:2 }}</td>
+                <td class="monospace
+                    {% if row.edge > 0 %}value-positive
+                    {% elif row.edge < 0 %}value-negative{% endif %}">
+                    {% widthratio row.edge 1 100 %}%
+                </td>
+                <td class="monospace
+                    {% if row.ev > 0 %}value-positive
+                    {% elif row.ev < 0 %}value-negative{% endif %}">
+                    {% widthratio row.ev 1 100 %}%
+                </td>
+                <td>
+                    {% if row.is_value %}<span class="badge badge-success small">VALUE</span>{% endif %}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="text-muted small mt-1">
+        Margen de la casa (vig, solo sobre 1X2):
+        {% if value_analysis.vig is not None %}
+            <strong>{% widthratio value_analysis.vig 1 100 %}%</strong>
+        {% else %}
+            —
+        {% endif %}
+        · EV positivo = apuesta de valor.
+    </p>
+    {% if value_analysis.recommendation %}
+    <p>
+        Recomendación:
+        <strong>{{ value_analysis.recommendation.label }}</strong>
+        <span class="badge badge-success small">VALUE</span>
+        · EV {% widthratio value_analysis.recommendation.ev 1 100 %}%
+    </p>
+    {% else %}
+    <p class="text-muted small">Ningún mercado ofrece value bet con estas cuotas.</p>
+    {% endif %}
+</section>
+{% endif %}
 
 <div class="grid mt-1">
     <section>

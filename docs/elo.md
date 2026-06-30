@@ -65,6 +65,12 @@ Valores recomendados:
 
 Este valor debe almacenarse por competición para permitir ajustes futuros.
 
+> **Implementación.** La localía se guarda en
+> `Competition.home_advantage` (default 80) y se infiere al importar
+> desde el catálogo `API_FOOTBALL_LEAGUES_BY_ID`. La fase final de un
+> Mundial o partidos en sede neutral usan `Match.is_neutral`, que
+> anula la localía en `forecasts/engine.py`.
+
 ---
 
 # Probabilidad esperada
@@ -151,6 +157,7 @@ Valores recomendados:
 | ---------------- | -: |
 | Mundial          | 30 |
 | Eliminatorias    | 25 |
+| Copa continental | 25 |
 | Primera división | 20 |
 | Copas nacionales | 20 |
 | Amistosos        | 15 |
@@ -198,6 +205,12 @@ EloNuevo
 ```
 
 Esto refleja cambios de plantilla, entrenadores y rendimiento sin perder completamente el historial.
+
+> **Implementación.** El comando `regress_elo <season>` aplica esta
+> regresión de forma idempotente: omite los equipos cuyo
+> `Team.last_regressed_season` ya coincide con la temporada indicada.
+> `EloPromedioLiga` proviene de `LeagueStrength.average_elo` (promedio
+> por `competition × season`).
 
 ---
 
@@ -262,6 +275,13 @@ Guardar siempre:
 Nunca recalcular Elo desde cero durante una consulta.
 
 Actualizar el rating inmediatamente después de importar cada partido para mantener la consistencia histórica.
+
+> **Implementación.** Los snapshots `elo_before/elo_after` se guardan en
+> dos lugares: en `Match` (`home_elo_before`, `home_elo_after`,
+> `away_elo_before`, `away_elo_after`) y por equipo en `EloLog`
+> (`elo_before/elo_after/delta/created_at`). El Elo promedio por liga
+> para la inicialización y la regresión entre temporadas se almacena en
+> `LeagueStrength.average_elo` (clave `competition × season`).
 
 ---
 

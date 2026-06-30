@@ -134,3 +134,15 @@ class ApiFootballClient:
         if date_to:
             params["to"] = date_to
         return self._response("/fixtures", params=params)
+
+    def get_fixture_statistics(self, fixture_id):
+        """Estadísticas por equipo de un partido finalizado.
+
+        Endpoint /fixtures/statistics?fixture=ID. Devuelve una lista de
+        entradas (una por equipo) con statistics[] (pares tipo/valor).
+        Disponible normalmente solo tras finalizado el partido. Plan
+        Free puede no incluir este endpoint en competiciones select.
+        """
+        return self._response(
+            "/fixtures/statistics", params={"fixture": fixture_id}
+        )

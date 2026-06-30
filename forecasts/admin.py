@@ -2,7 +2,15 @@ from django.contrib import admin
 from django.utils import timezone
 from datetime import timedelta
 
-from forecasts.models import Forecast
+from forecasts.models import Forecast, MarketForecast
+
+
+class MarketForecastInline(admin.TabularInline):
+    model = MarketForecast
+    extra = 0
+    readonly_fields = ("selection", "lam", "prob", "label", "is_fallback")
+    can_delete = False
+    max_num = 0
 
 
 class ForecastDateFilter(admin.SimpleListFilter):
@@ -37,6 +45,7 @@ class ForecastAdmin(admin.ModelAdmin):
         "prob_home_win",
         "prob_draw",
         "prob_away_win",
+        "top_score",
         "prediction",
         "fallback_display",
         "calculated_at",
@@ -57,6 +66,7 @@ class ForecastAdmin(admin.ModelAdmin):
     readonly_fields = ("calculated_at", "form_home", "form_away")
     list_per_page = 50
     date_hierarchy = "calculated_at"
+    inlines = (MarketForecastInline,)
     fieldsets = (
         ("Partido", {
             "fields": ("match",),
@@ -66,6 +76,19 @@ class ForecastAdmin(admin.ModelAdmin):
         }),
         ("Probabilidades 1X2", {
             "fields": ("prob_home_win", "prob_draw", "prob_away_win"),
+        }),
+        ("Mercados de goles", {
+            "fields": (
+                "prob_over_05", "prob_over_15", "prob_over_25",
+                "prob_over_35", "prob_over_45",
+                "prob_btts", "prob_btts_no",
+                "prob_score_home", "prob_score_home_no",
+                "prob_score_away", "prob_score_away_no",
+                "prob_1x", "prob_x2", "prob_12",
+                "prob_dnb_home", "prob_dnb_away",
+                "top_score", "top_score_prob",
+            ),
+            "classes": ("collapse",),
         }),
         ("Forma reciente", {
             "fields": ("form_home", "form_away"),
@@ -102,3 +125,6 @@ class ForecastAdmin(admin.ModelAdmin):
     def fallback_display(self, obj):
         return "Sí" if obj.is_fallback else "No"
     fallback_display.short_description = "Fallback"
+
+
+admin.site.register(MarketForecast)

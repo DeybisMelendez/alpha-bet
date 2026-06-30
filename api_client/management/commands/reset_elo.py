@@ -76,7 +76,8 @@ class Command(BaseCommand):
             else:
                 team.elo = settings.ELO_DEFAULT
             team.matches_played = 0
-            team.save(update_fields=["elo", "matches_played"])
+            team.last_regressed_season = ""
+            team.save(update_fields=["elo", "matches_played", "last_regressed_season"])
             reset_teams += 1
 
         self.stdout.write(self.style.SUCCESS(

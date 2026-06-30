@@ -36,6 +36,41 @@ class Match(models.Model):
     )
     utc_date = models.DateTimeField()
 
+    # Sede neutral (Mundial, fases finales internacionales, partidos
+    # en campo neutral). Documentado en docs/elo.md: cuando True la
+    # localía no aplica en el cálculo de Elo.
+    is_neutral = models.BooleanField(
+        default=False,
+        help_text="Sede neutral: la localía no aplica en Elo.",
+    )
+    venue = models.CharField(
+        max_length=200, blank=True, default="",
+        help_text="Estadio donde se disputa el partido (por partido).",
+    )
+    referee = models.CharField(
+        max_length=200, blank=True, default="",
+        help_text="Árbitro del partido.",
+    )
+    # Importancia competitiva derivada de la competición y la ronda.
+    # Se infiere al importar (api_client/sync.py) y permite ajustar
+    # modelos secundarios futuros.
+    class Importance(models.TextChoices):
+        FRIENDLY = "FRIENDLY", "Amistoso"
+        LEAGUE = "LEAGUE", "Liga"
+        CUP = "CUP", "Copa"
+        KNOCKOUT = "KNOCKOUT", "Eliminatoria"
+        INTERNATIONAL = "INTERNATIONAL", "Internacional"
+    importance = models.CharField(
+        max_length=20,
+        choices=Importance.choices,
+        default=Importance.LEAGUE,
+    )
+    # Días de descanso desde el último partido finalizado de cada
+    # equipo. Se calcula al importar; nullable para no bloquear el
+    # backfill si todavía no hay historial.
+    rest_days_home = models.PositiveSmallIntegerField(null=True, blank=True)
+    rest_days_away = models.PositiveSmallIntegerField(null=True, blank=True)
+
     home_team = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="home_matches"
     )

@@ -9,10 +9,42 @@ from forecasts.models import Forecast
 from matches.models import Match
 
 
+# ---------------------------------------------------------------------------
+# Utilidades de ponderación temporal.
+# docs/xG.md §Ponderación temporal: Peso = exp(-Dias/180).
+# ---------------------------------------------------------------------------
+
+def _decay_weight(age_days, decay_days=None):
+    if decay_days is None:
+        decay_days = settings.FORECAST_DECAY_DAYS
+    return math.exp(-max(age_days, 0.0) / decay_days)
+
+
+def weighted_average(values, dates, ref_date, decay_days=None):
+    """Promedio de `values` ponderado por antigüedad respecto a ref_date.
+
+    Cada par (valor, fecha) recibe un peso exp(-(edad_días)/180) según
+    docs/xG.md. ref_date es la fecha del partido a pronosticar (o la
+    fecha de cálculo si es manual).
+    """
+    total_w = 0.0
+    s = 0.0
+    for v, d in zip(values, dates):
+        age = max((ref_date - d).total_seconds(), 0.0) / 86400.0
+        w = _decay_weight(age, decay_days)
+        s += v * w
+        total_w += w
+    return s / total_w if total_w > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Elo de equipos en un partido (usado para ajuste por rival).
+# ---------------------------------------------------------------------------
+
 def _team_elo_at_match(team, match):
-    # Se usa el Elo con el que el equipo entró al partido (elo_before) porque
-    # mide su fuerza justo antes de ese resultado. Usar elo_after filtraría
-    # el propio resultado en el factor de dificultad del rival.
+    # Se usa el Elo con el que el equipo entró al partido (elo_before)
+    # porque mide su fuerza justo antes de ese resultado. Usar elo_after
+    # filtraría el propio resultado en el factor de dificultad del rival.
     if team == match.home_team:
         if match.home_elo_before is not None:
             return match.home_elo_before
@@ -36,47 +68,45 @@ def _opponent_elo_at_match(team, match):
     return team.elo
 
 
+# ---------------------------------------------------------------------------
+# Consultas de historial.
+# ---------------------------------------------------------------------------
+
+def _finished_qs(team):
+    return Match.objects.filter(
+        Q(home_team=team) | Q(away_team=team),
+        status=Match.Status.FINISHED,
+        home_goals__isnull=False,
+        away_goals__isnull=False,
+        elo_processed=True,
+    ).order_by("-utc_date")
+
+
 def recent_finished_matches(team, n=None):
     if n is None:
-        n = settings.FORECAST_FORM_MATCHES
-    return (
-        Match.objects.filter(
-            Q(home_team=team) | Q(away_team=team),
-            status=Match.Status.FINISHED,
-            home_goals__isnull=False,
-            away_goals__isnull=False,
-            elo_processed=True,
-        )
-        .order_by("-utc_date")[:n]
-    )
+        n = settings.FORECAST_FORM_LONG
+    return _finished_qs(team)[:n]
+
+
+def _venue_matches(team, venue, limit):
+    qs = _finished_qs(team)
+    if venue == "home":
+        qs = qs.filter(home_team=team)
+    elif venue == "away":
+        qs = qs.filter(away_team=team)
+    return list(qs[:limit]) if limit else list(qs)
 
 
 def last_match_date(team):
     """Fecha del partido finalizado más reciente del equipo (o None)."""
-    m = (
-        Match.objects.filter(
-            Q(home_team=team) | Q(away_team=team),
-            status=Match.Status.FINISHED,
-            home_goals__isnull=False,
-            away_goals__isnull=False,
-            elo_processed=True,
-        )
-        .order_by("-utc_date")
-        .first()
-    )
+    m = _finished_qs(team).first()
     return m.utc_date if m else None
 
 
 def is_form_stale(team, max_months=None, now=None, last_date=None):
-    """Detecta si la forma reciente del equipo está desactualizada.
-
-    Devuelve True si el último partido finalizado del equipo es más
-    antiguo que FORECAST_STALE_MONTHS. En ese caso la forma reciente no
-    es representativa y el pronóstico debe usar fallback Elo-only.
-
-    last_date permite inyectar la fecha precalculada para evitar una
-    query duplicada cuando el llamador ya la obtuvo.
-    """
+    """True si el último partido finalizado del equipo es más antiguo que
+    FORECAST_STALE_MONTHS. La forma reciente no es representativa y el
+    pronóstico usa fallback Elo-only."""
     if max_months is None:
         max_months = getattr(settings, "FORECAST_STALE_MONTHS", 6)
     if now is None:
@@ -87,6 +117,11 @@ def is_form_stale(team, max_months=None, now=None, last_date=None):
     age_days = (now - last).days
     return age_days > max_months * 30
 
+
+# ---------------------------------------------------------------------------
+# Goles ajustados por dificultad del rival.
+# docs/xG.md §Ajuste por dificultad del rival: usar el Elo previo del rival.
+# ---------------------------------------------------------------------------
 
 def _goals_for(team, match):
     if team == match.home_team:
@@ -108,15 +143,12 @@ def adjusted_goals_for(team, match):
     team_elo = _team_elo_at_match(team, match)
     if team_elo <= 0:
         return float(raw)
-    factor = opponent_elo / team_elo
-    return raw * factor
+    return float(raw) * (opponent_elo / team_elo)
 
 
 def adjusted_goals_against(team, match):
-    # Factor inverso al de ataque: recibir un gol de un rival débil penaliza
-    # más la defensa propia, mientras que recibirlo de un rival fuerte es más
-    # esperado y se atenúa. Por eso aquí el factor es team/opponent (inverso
-    # del de adjusted_goals_for, que usa opponent/team).
+    # Factor inverso al de ataque: recibir un gol de un rival débil
+    # penaliza más la defensa propia (factor = team/opponent).
     raw = _goals_against(team, match)
     if raw is None:
         return 0.0
@@ -124,46 +156,191 @@ def adjusted_goals_against(team, match):
     team_elo = _team_elo_at_match(team, match)
     if opponent_elo <= 0:
         return float(raw)
-    factor = team_elo / opponent_elo
-    return raw * factor
+    return float(raw) * (team_elo / opponent_elo)
 
 
-def attack_defense_ratings(team, n=None):
-    matches = recent_finished_matches(team, n=n)
-    if not matches:
-        return 0.0, 0.0
-    attack_values = [adjusted_goals_for(team, m) for m in matches]
-    defense_values = [adjusted_goals_against(team, m) for m in matches]
-    attack = sum(attack_values) / len(attack_values)
-    defense = sum(defense_values) / len(defense_values)
-    return attack, defense
+# ---------------------------------------------------------------------------
+# Ratings de ataque/defensa separados por local/visitante.
+# docs/xG.md: AtaqueLocal, AtaqueVisitante, DefensaLocal, DefensaVisitante.
+# Cada uno es promedio ponderado por antigüedad de goles ajustados por rival.
+# ---------------------------------------------------------------------------
+
+def attack_defense_ratings(team, ref_date=None):
+    """Devuelve (atk_home, atk_away, def_home, def_away).
+
+    Cada rating combina la producción del equipo en una condición (local
+    o visitante) con ponderación temporal exponencial. Si no hay muestra
+    suficiente en alguna condición, los ratings devuelven 0.0: el
+    llamador gestiona el fallback a Elo-only.
+    """
+    if ref_date is None:
+        ref_date = timezone.now()
+
+    venue_limit = settings.FORECAST_FORM_LONG * 2
+    home_matches = _venue_matches(team, "home", venue_limit)
+    away_matches = _venue_matches(team, "away", venue_limit)
+
+    min_venue = settings.FORECAST_MIN_VENUE_HISTORY
+
+    if len(home_matches) >= min_venue:
+        atk_home = weighted_average(
+            [adjusted_goals_for(team, m) for m in home_matches],
+            [m.utc_date for m in home_matches],
+            ref_date,
+        )
+        def_home = weighted_average(
+            [adjusted_goals_against(team, m) for m in home_matches],
+            [m.utc_date for m in home_matches],
+            ref_date,
+        )
+    else:
+        atk_home = def_home = 0.0
+
+    if len(away_matches) >= min_venue:
+        atk_away = weighted_average(
+            [adjusted_goals_for(team, m) for m in away_matches],
+            [m.utc_date for m in away_matches],
+            ref_date,
+        )
+        def_away = weighted_average(
+            [adjusted_goals_against(team, m) for m in away_matches],
+            [m.utc_date for m in away_matches],
+            ref_date,
+        )
+    else:
+        atk_away = def_away = 0.0
+
+    return atk_home, atk_away, def_home, def_away
 
 
-def expected_goals(home, away, home_advantage=None):
+# ---------------------------------------------------------------------------
+# Forma reciente (dos ventanas).
+# docs/xG.md: Forma = 0.65·Forma20 + 0.35·Forma5.
+# La "forma" se expresa como factor multiplicativo sobre λ, acotado a
+# 1 ± FORECAST_FORM_MAX_IMPACT. Se basa en la diferencia entre los
+# puntos obtenidos y los puntos esperados por Elo (performance ratio).
+# ---------------------------------------------------------------------------
+
+def _expected_points(team, match):
+    """Puntos que Elo esperaba del equipo en ese partido (0..3)."""
+    home_adv = 0
+    if match.competition_id and not match.is_neutral:
+        home_adv = match.competition.home_advantage
+    team_elo = _team_elo_at_match(team, match)
+    opp_elo = _opponent_elo_at_match(team, match)
+    is_home = team == match.home_team
+    if is_home and not match.is_neutral:
+        team_elo += home_adv
+    pe = 1 / (1 + 10 ** (-(team_elo - opp_elo) / 400))
+    # Puntos esperados: 3·P(win) + 1·P(draw). Aproximación: P(draw)≈0.27.
+    return 3 * pe + 1 * 0.27 * (2 * min(pe, 1 - pe))
+
+
+def _actual_points(team, match):
+    gf, ga = _goals_for(team, match), _goals_against(team, match)
+    if gf is None or ga is None:
+        return 0.0
+    if gf > ga:
+        return 3.0
+    if gf == ga:
+        return 1.0
+    return 0.0
+
+
+def recent_form_factor(team, ref_date=None):
+    """Factor multiplicativo sobre λ derivado de la forma reciente.
+
+    Compara los puntos reales vs los esperados por Elo en las ventanas
+    corta (5) y larga (20) y combina 0.65·Larga + 0.35·Corta. El factor
+    se acota a [1 - MAX_IMPACT, 1 + MAX_IMPACT] para que la forma no
+    domine el modelo (docs/xG.md: "nunca reemplaza las estadísticas").
+    """
+    if ref_date is None:
+        ref_date = timezone.now()
+    impact = settings.FORECAST_FORM_MAX_IMPACT
+
+    def _ratio(matches):
+        if not matches:
+            return 1.0
+        actual = []
+        expected = []
+        for m in matches:
+            actual.append(_actual_points(team, m))
+            expected.append(_expected_points(team, m))
+        exp_sum = sum(expected) or 1.0
+        act_sum = sum(actual)
+        ratio = act_sum / exp_sum if exp_sum > 0 else 1.0
+        # ratio≈1 → forma esperada. >1 mejor, <1 peor. Clamp al impacto.
+        return max(1.0 - impact, min(1.0 + impact, 1.0 + (ratio - 1.0) * impact))
+
+    short_m = list(_finished_qs(team)[: settings.FORECAST_FORM_SHORT])
+    long_m = list(_finished_qs(team)[: settings.FORECAST_FORM_LONG])
+    form_short = _ratio(short_m)
+    form_long = _ratio(long_m)
+    return (
+        settings.FORECAST_FORM_LONG_WEIGHT * form_long
+        + settings.FORECAST_FORM_SHORT_WEIGHT * form_short
+    )
+
+
+# ---------------------------------------------------------------------------
+# Estimación de goles esperados (λ).
+# docs/xG.md: λLocal = √(AtaqueLocal × DefensaVisitante) × FactorElo
+# × FactorLocalía × FactorForma. Clamp [0.20, 4.00].
+# ---------------------------------------------------------------------------
+
+def _elo_factor(diff):
+    """Factor suave (no lineal) por diferencia Elo.
+
+    docs/xG.md: "una función suave que evite exagerar las diferencias".
+    Usamos tanh acotada: factor = 1 + gain·tanh(diff/scale).
+    """
+    gain = settings.FORECAST_ELO_GAIN
+    scale = settings.FORECAST_ELO_SCALE
+    return 1.0 + gain * math.tanh(diff / scale)
+
+
+def _clamp_lambda(lam):
+    lo = settings.FORECAST_LAMBDA_MIN
+    hi = settings.FORECAST_LAMBDA_MAX
+    return max(lo, min(hi, lam))
+
+
+def expected_goals(home, away, home_advantage=None, is_neutral=False,
+                   ref_date=None, form_home=None, form_away=None):
+    """λ de local y visitante (docs/xG.md y docs/pronostico.md).
+
+    Combina ataque propio × defensa del rival (promedio geométrico),
+    factor Elo suave, ventaja de localía y factor de forma reciente.
+    Devuelve (xg_home, xg_away) ya clamped [0.20, 4.00].
+    """
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
-    home_elo = home.elo + home_advantage
-    away_elo = away.elo
-    diff = home_elo - away_elo
+    if is_neutral:
+        home_advantage = 0
+    if ref_date is None:
+        ref_date = timezone.now()
 
-    atk_home, def_home = attack_defense_ratings(home)
-    atk_away, def_away = attack_defense_ratings(away)
+    atk_home, atk_away, def_home, def_away = attack_defense_ratings(
+        home, ref_date=ref_date
+    )
+    a_home, a_away, d_home, d_away = attack_defense_ratings(
+        away, ref_date=ref_date
+    )
 
-    factor_home = 1 + (diff / 1000)
-    factor_away = 1 - (diff / 1000)
+    diff = (home.elo + home_advantage) - away.elo
+    factor_home = _elo_factor(diff)
+    factor_away = _elo_factor(-diff)
 
-    # Goles esperados combinando el ataque propio con la defensa del rival.
-    # Se usa promedio geométrico sqrt(atk * def) en lugar del aritmético
-    # porque el modelo Poisson subyacente (Dixon-Coles) es multiplicativo:
-    # log(λ) = μ + α_ataque + β_defensa. El promedio geométrico respeta esa
-    # estructura y evita el amortiguamiento del aritmético (ataque fuerte vs
-    # defensa fuerte ya no colapsan al centro).
-    xg_home = math.sqrt(max(atk_home * def_away, 0.0)) * factor_home
-    xg_away = math.sqrt(max(atk_away * def_home, 0.0)) * factor_away
+    if form_home is None:
+        form_home = recent_form_factor(home, ref_date=ref_date)
+    if form_away is None:
+        form_away = recent_form_factor(away, ref_date=ref_date)
 
-    xg_home = max(xg_home, 0.0)
-    xg_away = max(xg_away, 0.0)
-    return xg_home, xg_away
+    # Promedio geométrico ataque propio × defensa del rival.
+    xg_home = math.sqrt(max(atk_home * d_away, 0.0)) * factor_home * form_home
+    xg_away = math.sqrt(max(atk_away * def_home, 0.0)) * factor_away * form_away
+    return _clamp_lambda(xg_home), _clamp_lambda(xg_away)
 
 
 def expected_goals_from_ratings(
@@ -174,53 +351,66 @@ def expected_goals_from_ratings(
     away_attack,
     away_defense,
     home_advantage=None,
+    is_neutral=False,
+    form_home=None,
+    form_away=None,
 ):
     """Pronóstico a partir de ratings manuales (sin consultar la DB).
 
-    Replica la lógica de `expected_goals` pero recibiendo los valores
-    numéricos directamente. Útil para cálculos what-if manuales donde no
-    existe un Match o Team persistido.
+    Útil para cálculos what-if manuales. aquí `home_attack` significa el
+    ataque del equipo local jugando como local y `away_defense` la
+    defensa del equipo visitante jugando como visitante (análogamente
+    para away_attack / home_defense).
     """
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
-    home_elo_adj = home_elo + home_advantage
-    away_elo_adj = away_elo
-    diff = home_elo_adj - away_elo_adj
+    if is_neutral:
+        home_advantage = 0
+    diff = (home_elo + home_advantage) - away_elo
+    factor_home = _elo_factor(diff)
+    factor_away = _elo_factor(-diff)
 
-    factor_home = 1 + (diff / 1000)
-    factor_away = 1 - (diff / 1000)
+    if form_home is None:
+        form_home = 1.0
+    if form_away is None:
+        form_away = 1.0
 
-    xg_home = math.sqrt(max(home_attack * away_defense, 0.0)) * factor_home
-    xg_away = math.sqrt(max(away_attack * home_defense, 0.0)) * factor_away
+    xg_home = (
+        math.sqrt(max(home_attack * away_defense, 0.0))
+        * factor_home * form_home
+    )
+    xg_away = (
+        math.sqrt(max(away_attack * home_defense, 0.0))
+        * factor_away * form_away
+    )
+    return _clamp_lambda(xg_home), _clamp_lambda(xg_away)
 
-    xg_home = max(xg_home, 0.0)
-    xg_away = max(xg_away, 0.0)
-    return xg_home, xg_away
 
+def expected_goals_elo_only(home, away, home_advantage=None, is_neutral=False):
+    """Fallback basado solo en diferencia Elo (historial insuficiente).
 
-def expected_goals_elo_only(home, away, home_advantage=None):
-    """Pronóstico fallback basado solo en la diferencia Elo.
-
-    Se usa cuando alguno de los dos equipos no tiene historial suficiente
-    (< FORECAST_MIN_HISTORY). En lugar de omitir el pronóstico, se estima
-    los goles esperados usando un baseline de goles por partido ajustado
-    por la diferencia Elo. A medida que los equipos acumulen historial,
-    el modelo completo (Poisson + forma reciente) sustituye este fallback.
+    Se usa cuando algún equipo no tiene muestra suficiente (<
+    FORECAST_MIN_HISTORY). Sin ratings de ataque/defensa, se estima un
+    λ baseline (1.35) desplazado por la diferencia Elo de forma suave.
     """
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
+    if is_neutral:
+        home_advantage = 0
     baseline = settings.FORECAST_FALLBACK_BASELINE
-    home_elo = home.elo + home_advantage
-    away_elo = away.elo
-    diff = home_elo - away_elo
+    diff = (home.elo + home_advantage) - away.elo
 
-    factor_home = 1 + (diff / 1000)
-    factor_away = 1 - (diff / 1000)
+    factor_home = _elo_factor(diff)
+    factor_away = _elo_factor(-diff)
 
-    xg_home = max(baseline * factor_home, 0.0)
-    xg_away = max(baseline * factor_away, 0.0)
+    xg_home = _clamp_lambda(baseline * factor_home)
+    xg_away = _clamp_lambda(baseline * factor_away)
     return xg_home, xg_away
 
+
+# ---------------------------------------------------------------------------
+# Poisson + Dixon-Coles.
+# ---------------------------------------------------------------------------
 
 def poisson_prob(lam, k):
     if lam <= 0:
@@ -295,40 +485,82 @@ MARKET_LABELS = (
     ("x2", "Doble op. X2"),
     ("12", "Sin empate (12)"),
     ("btts", "Ambos marcan"),
+    ("score_home", "Local marca"),
+    ("score_away", "Visitante marca"),
+    ("over_05", "Over 0.5"),
+    ("over_15", "Over 1.5"),
+    ("over_25", "Over 2.5"),
+    ("over_35", "Over 3.5"),
+    ("over_45", "Over 4.5"),
+    ("dnb_home", "DNB Local"),
+    ("dnb_away", "DNB Visitante"),
 )
 
 
 def market_probabilities(matrix):
-    """Probabilidades de todos los mercados de apuestas derivados de la matriz.
+    """Probabilidades de los mercados de apuestas derivados de la matriz.
 
     Devuelve un dict clave -> probabilidad:
       * 1X2 base: home, draw, away.
       * Doble oportunidad: 1x (local o empate), x2 (empate o visitante).
       * Sin empate (12): gana local o gana visitante = 1 - p_draw.
       * BTTS (ambos marcan): P(local >= 1 y visitante >= 1).
-
-    El BTTS se suma celda a celda (no se asume independencia entre goles)
-    porque la corrección Dixon-Coles introduce dependencia en baja anotación.
+      * Over/Under x.5 para x en {0,1,2,3,4}: prob_over_X5.
+      * DNB (Draw No Bet): empate reembolsado → normaliza sobre no-empate.
+      * Top correct score (i,j) y su probabilidad.
 
     Con rho != 0 la matriz no suma exactamente 1, así que todas las
-    probabilidades derivadas se normalizan por el total de la matriz para
-    mantener consistencia con probabilities_1x2 (que también normaliza).
+    probabilidades derivadas se normalizan por el total de la matriz.
     """
+    max_goals = len(matrix) - 1
     total = sum(p for row in matrix for p in row)
     if total <= 0:
         return {
             "home": 0.0, "draw": 0.0, "away": 0.0,
             "1x": 0.0, "x2": 0.0, "12": 0.0,
             "btts": 0.0, "btts_no": 1.0,
+            "score_home": 0.0, "score_home_no": 1.0,
+            "score_away": 0.0, "score_away_no": 1.0,
+            "over_05": 0.0, "over_15": 0.0, "over_25": 0.0,
+            "over_35": 0.0, "over_45": 0.0,
+            "dnb_home": 0.5, "dnb_away": 0.5,
         }
 
     p_home, p_draw, p_away = probabilities_1x2(matrix)
+
     btts = 0.0
+    score_home_zero = 0.0
+    score_away_zero = 0.0
+    over = {thr: 0.0 for thr in (0, 1, 2, 3, 4)}
+    top_i = top_j = 0
+    top_p = 0.0
     for i, row in enumerate(matrix):
         for j, p in enumerate(row):
             if i >= 1 and j >= 1:
                 btts += p
-    btts = btts / total
+            if i == 0:
+                score_home_zero += p
+            if j == 0:
+                score_away_zero += p
+            total_goals = i + j
+            for thr in over:
+                if total_goals > thr:
+                    over[thr] += p
+            if p > top_p:
+                top_p = p
+                top_i, top_j = i, j
+
+    btts /= total
+    score_home_zero /= total
+    score_away_zero /= total
+    for thr in over:
+        over[thr] /= total
+
+    # DNB: reembolsa empate; reescala a (home, away) sobre no-empate.
+    non_draw = p_home + p_away
+    dnb_home = p_home / non_draw if non_draw > 0 else 0.5
+    dnb_away = p_away / non_draw if non_draw > 0 else 0.5
+
     return {
         "home": p_home,
         "draw": p_draw,
@@ -338,11 +570,29 @@ def market_probabilities(matrix):
         "12": p_home + p_away,
         "btts": btts,
         "btts_no": 1.0 - btts,
+        "score_home": 1.0 - score_home_zero,
+        "score_home_no": score_home_zero,
+        "score_away": 1.0 - score_away_zero,
+        "score_away_no": score_away_zero,
+        "over_05": over[0],
+        "over_15": over[1],
+        "over_25": over[2],
+        "over_35": over[3],
+        "over_45": over[4],
+        "under_05": 1.0 - over[0],
+        "under_15": 1.0 - over[1],
+        "under_25": 1.0 - over[2],
+        "under_35": 1.0 - over[3],
+        "under_45": 1.0 - over[4],
+        "dnb_home": dnb_home,
+        "dnb_away": dnb_away,
+        "top_score": f"{top_i}-{top_j}",
+        "top_score_prob": top_p / total,
     }
 
 
 def _form_summary(team):
-    matches = recent_finished_matches(team)
+    matches = list(recent_finished_matches(team, n=settings.FORECAST_FORM_LONG))
     form = []
     for m in matches:
         form.append({
@@ -355,11 +605,13 @@ def _form_summary(team):
             "adjusted_for": round(adjusted_goals_for(team, m), 3),
             "adjusted_against": round(adjusted_goals_against(team, m), 3),
         })
-    atk, deff = attack_defense_ratings(team)
+    atk_home, atk_away, def_home, def_away = attack_defense_ratings(team)
     return {
         "matches": form,
-        "attack_rating": round(atk, 3),
-        "defense_rating": round(deff, 3),
+        "attack_home": round(atk_home, 3),
+        "attack_away": round(atk_away, 3),
+        "defense_home": round(def_home, 3),
+        "defense_away": round(def_away, 3),
     }
 
 
@@ -367,16 +619,20 @@ def team_history_count(team):
     # Solo se cuentan partidos con Elo procesado: la forma reciente usa
     # elo_before para ajustar goles por dificultad del rival, por lo que
     # los partidos sin procesar no son utilizables por el modelo completo.
-    return (
-        Match.objects.filter(
-            Q(home_team=team) | Q(away_team=team),
-            status=Match.Status.FINISHED,
-            home_goals__isnull=False,
-            away_goals__isnull=False,
-            elo_processed=True,
-        ).count()
-    )
+    return _finished_qs(team).count()
 
+
+def _has_venue_history(team, ref_date=None):
+    """Comprueba si el equipo tiene historial suficiente por condición."""
+    min_venue = settings.FORECAST_MIN_VENUE_HISTORY
+    home_ok = _venue_matches(team, "home", min_venue)
+    away_ok = _venue_matches(team, "away", min_venue)
+    return len(home_ok) >= min_venue and len(away_ok) >= min_venue
+
+
+# ---------------------------------------------------------------------------
+# Análisis de value bet (cuotas manuales).
+# ---------------------------------------------------------------------------
 
 def value_bet_analysis(market_probs, odds):
     """Compara las probabilidades del modelo con cuotas por mercado.
@@ -438,31 +694,46 @@ def value_bet_analysis(market_probs, odds):
     return {"rows": rows, "vig": vig, "recommendation": recommendation}
 
 
-def _team_form_data(team, cache=None):
+# ---------------------------------------------------------------------------
+# Caché de forma por equipo (corrida batch) y generación de pronósticos.
+# ---------------------------------------------------------------------------
+
+def _team_form_data(team, cache=None, ref_date=None):
     """Calcula y cachea todos los datos de forma de un equipo.
 
     Durante una corrida batch (generate_for_scheduled_matches,
     regenerate_for_teams) se reutiliza el mismo cache dict para evitar
     reconsultar la forma de equipos que aparecen en varios partidos.
 
-    Devuelve un dict con: history_count, last_date, stale, attack,
-    defense, form_summary.
+    Devuelve un dict con: history_count, last_date, stale, has_venue,
+    attack_home/away, defense_home/away, form_factor, form_summary.
     """
     if cache is not None and team.id in cache:
         return cache[team.id]
 
+    if ref_date is None:
+        ref_date = timezone.now()
+
     history_count = team_history_count(team)
     last_date = last_match_date(team)
     stale = is_form_stale(team, last_date=last_date)
-    attack, defense = attack_defense_ratings(team)
+    has_venue = _has_venue_history(team, ref_date=ref_date)
+    atk_home, atk_away, def_home, def_away = attack_defense_ratings(
+        team, ref_date=ref_date
+    )
+    form_factor = recent_form_factor(team, ref_date=ref_date)
     form_summary = _form_summary(team)
 
     data = {
         "history_count": history_count,
         "last_date": last_date,
         "stale": stale,
-        "attack": attack,
-        "defense": defense,
+        "has_venue": has_venue,
+        "attack_home": atk_home,
+        "attack_away": atk_away,
+        "defense_home": def_home,
+        "defense_away": def_away,
+        "form_factor": form_factor,
         "form_summary": form_summary,
     }
     if cache is not None:
@@ -470,58 +741,74 @@ def _team_form_data(team, cache=None):
     return data
 
 
+def _home_advantage_for(match):
+    comp = match.competition
+    if comp is None or match.is_neutral:
+        return 0 if match.is_neutral else settings.ELO_HOME_ADVANTAGE
+    return comp.home_advantage
+
+
 def generate_forecast(match, cache=None):
     home = match.home_team
     away = match.away_team
 
-    # El cache evita reconsultar la forma de equipos que aparecen en
-    # varios partidos dentro de la misma corrida batch.
-    home_data = _team_form_data(home, cache=cache)
-    away_data = _team_form_data(away, cache=cache)
+    home_data = _team_form_data(home, cache=cache, ref_date=match.utc_date)
+    away_data = _team_form_data(away, cache=cache, ref_date=match.utc_date)
 
-    home_history = home_data["history_count"]
-    away_history = away_data["history_count"]
     min_history = settings.FORECAST_MIN_HISTORY
-
-    # Se usa fallback cuando un equipo no tiene historial suficiente o
-    # cuando su forma reciente está desactualizada (stale). Esto último
-    # ocurre con selecciones nacionales cuyo historial tiene huecos por
-    # las restricciones del plan Free de API-Football (solo hoy ± 1 día).
     home_stale = home_data["stale"]
     away_stale = away_data["stale"]
 
+    # Fallback si algún equipo sin historial suficiente, sin muestra por
+    # condición, o forma desactualizada (huecos por plan Free de la API).
     is_fallback = (
-        home_history < min_history
-        or away_history < min_history
+        home_data["history_count"] < min_history
+        or away_data["history_count"] < min_history
+        or not home_data["has_venue"]
+        or not away_data["has_venue"]
         or home_stale
         or away_stale
     )
 
+    home_adv = _home_advantage_for(match)
+
     if is_fallback:
-        xg_home, xg_away = expected_goals_elo_only(home, away)
+        xg_home, xg_away = expected_goals_elo_only(
+            home, away,
+            home_advantage=home_adv,
+            is_neutral=match.is_neutral,
+        )
         form_home = {
-            "history_count": home_history,
+            "history_count": home_data["history_count"],
             "stale": home_stale,
+            "has_venue": home_data["has_venue"],
         }
         form_away = {
-            "history_count": away_history,
+            "history_count": away_data["history_count"],
             "stale": away_stale,
+            "has_venue": away_data["has_venue"],
         }
     else:
-        # Pronóstico completo usando los ratings cacheados de forma reciente.
         xg_home, xg_away = expected_goals_from_ratings(
             home.elo,
-            home_data["attack"],
-            home_data["defense"],
+            home_data["attack_home"],
+            home_data["defense_home"],
             away.elo,
-            away_data["attack"],
-            away_data["defense"],
+            away_data["attack_away"],
+            away_data["defense_away"],
+            home_advantage=home_adv,
+            is_neutral=match.is_neutral,
+            form_home=home_data["form_factor"],
+            form_away=away_data["form_factor"],
         )
         form_home = home_data["form_summary"]
+        form_home["form_factor"] = round(home_data["form_factor"], 3)
         form_away = away_data["form_summary"]
+        form_away["form_factor"] = round(away_data["form_factor"], 3)
 
     matrix = build_matrix(xg_home, xg_away)
     p_home, p_draw, p_away = probabilities_1x2(matrix)
+    markets = market_probabilities(matrix)
 
     forecast, _ = Forecast.objects.update_or_create(
         match=match,
@@ -531,11 +818,42 @@ def generate_forecast(match, cache=None):
             "prob_home_win": p_home,
             "prob_draw": p_draw,
             "prob_away_win": p_away,
+            "prob_over_05": markets["over_05"],
+            "prob_over_15": markets["over_15"],
+            "prob_over_25": markets["over_25"],
+            "prob_over_35": markets["over_35"],
+            "prob_over_45": markets["over_45"],
+            "prob_btts": markets["btts"],
+            "prob_btts_no": markets["btts_no"],
+            "prob_score_home": markets["score_home"],
+            "prob_score_home_no": markets["score_home_no"],
+            "prob_score_away": markets["score_away"],
+            "prob_score_away_no": markets["score_away_no"],
+            "prob_1x": markets["1x"],
+            "prob_x2": markets["x2"],
+            "prob_12": markets["12"],
+            "prob_dnb_home": markets["dnb_home"],
+            "prob_dnb_away": markets["dnb_away"],
+            "top_score": markets["top_score"],
+            "top_score_prob": markets["top_score_prob"],
             "form_home": form_home,
             "form_away": form_away,
             "is_fallback": is_fallback,
         },
     )
+
+    # Mercados secundarios (remates, córners, tarjetas, faltas).
+    # Se calculan solo si hay estadísticas históricas (Fase 5).
+    try:
+        from forecasts.secondary import generate_secondary_markets
+        generate_secondary_markets(forecast, match, cache=cache)
+    except Exception:
+        import logging
+        logging.getLogger("alpha").exception(
+            "Error generando mercados secundarios para partido %s",
+            match.id_api,
+        )
+
     return forecast
 
 

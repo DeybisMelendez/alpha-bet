@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "matches",
     "elo",
     "forecasts",
+    "stats",
     "api_client",
 ]
 
@@ -156,101 +157,119 @@ API_FOOTBALL_DAILY_BUDGET = 7000
 # ELO_DEFAULT y se recalibran con recompute_league_strength tras el backfill.
 API_FOOTBALL_LEAGUES = [
     # --- Ligas europeas top ---
-    (39, "39", "Premier League", 1600),
-    (140, "140", "La Liga", 1570),
-    (78, "78", "Bundesliga", 1560),
-    (135, "135", "Serie A", 1550),
-    (61, "61", "Ligue 1", 1540),
-    (88, "88", "Eredivisie", 1450),
-    (94, "94", "Primeira Liga", 1450),
+    (39, "39", "Premier League", 1600, "LEAGUE", 80),
+    (140, "140", "La Liga", 1570, "LEAGUE", 80),
+    (78, "78", "Bundesliga", 1560, "LEAGUE", 80),
+    (135, "135", "Serie A", 1550, "LEAGUE", 80),
+    (61, "61", "Ligue 1", 1540, "LEAGUE", 80),
+    (88, "88", "Eredivisie", 1450, "LEAGUE", 80),
+    (94, "94", "Primeira Liga", 1450, "LEAGUE", 80),
     # --- Sudamérica ---
-    (13, "13", "Copa Libertadores", 1500),
-    (11, "11", "Copa Sudamericana", 1450),
-    (71, "71", "Brasileirão Serie A", 1490),
-    (128, "128", "Liga Profesional Argentina", 1480),
+    (13, "13", "Copa Libertadores", 1500, "CONTINENTAL", 0),
+    (11, "11", "Copa Sudamericana", 1450, "CONTINENTAL", 0),
+    (71, "71", "Brasileirão Serie A", 1490, "LEAGUE", 80),
+    (128, "128", "Liga Profesional Argentina", 1480, "LEAGUE", 80),
     # --- Copas europeas ---
-    (2, "2", "UEFA Champions League", 1600),
-    (3, "3", "UEFA Europa League", 1500),
-    (848, "848", "UEFA Europa Conference League", 1450),
+    (2, "2", "UEFA Champions League", 1600, "CONTINENTAL", 0),
+    (3, "3", "UEFA Europa League", 1500, "CONTINENTAL", 0),
+    (848, "848", "UEFA Europa Conference League", 1450, "CONTINENTAL", 0),
     # --- Selecciones (todas las confederaciones) ---
-    (1, "1", "World Cup", 1580),
-    (4, "4", "Euro Championship", 1580),
-    (31, "31", "World Cup Qualification CONCACAF", 1550),
-    (32, "32", "World Cup Qualification Europe", 1550),
-    (29, "29", "World Cup Qualification Africa", 1500),
-    (30, "30", "World Cup Qualification Asia", 1500),
-    (33, "33", "World Cup Qualification Oceania", 1450),
-    (34, "34", "World Cup Qualification South America", 1560),
-    (9, "9", "Copa America", 1560),
-    (7, "7", "Asian Cup", 1500),
-    (6, "6", "Africa Cup of Nations", 1500),
-    (22, "22", "CONCACAF Gold Cup", 1500),
-    (536, "536", "CONCACAF Nations League", 1500),
-    (805, "805", "Copa Centroamericana", 1450),
-    (10, "10", "Friendlies", 1500),
+    (1, "1", "World Cup", 1580, "WORLD_CUP", 0),
+    (4, "4", "Euro Championship", 1580, "INTERNATIONAL", 0),
+    (31, "31", "World Cup Qualification CONCACAF", 1550, "QUALIFIERS", 50),
+    (32, "32", "World Cup Qualification Europe", 1550, "QUALIFIERS", 50),
+    (29, "29", "World Cup Qualification Africa", 1500, "QUALIFIERS", 50),
+    (30, "30", "World Cup Qualification Asia", 1500, "QUALIFIERS", 50),
+    (33, "33", "World Cup Qualification Oceania", 1450, "QUALIFIERS", 50),
+    (34, "34", "World Cup Qualification South America", 1560, "QUALIFIERS", 50),
+    (9, "9", "Copa America", 1560, "INTERNATIONAL", 0),
+    (7, "7", "Asian Cup", 1500, "INTERNATIONAL", 0),
+    (6, "6", "Africa Cup of Nations", 1500, "INTERNATIONAL", 0),
+    (22, "22", "CONCACAF Gold Cup", 1500, "INTERNATIONAL", 0),
+    (536, "536", "CONCACAF Nations League", 1500, "INTERNATIONAL", 0),
+    (805, "805", "Copa Centroamericana", 1450, "INTERNATIONAL", 0),
+    (10, "10", "Friendlies", 1500, "FRIENDLY", 50),
     # --- Norteamérica ---
-    (253, "253", "MLS", 1450),
-    (262, "262", "Liga MX", 1480),
-    (479, "479", "Canadian Premier League", 1380),
-    (257, "257", "US Open Cup", 1400),
-    (259, "259", "Canadian Championship", 1380),
+    (253, "253", "MLS", 1450, "LEAGUE", 80),
+    (262, "262", "Liga MX", 1480, "LEAGUE", 80),
+    (479, "479", "Canadian Premier League", 1380, "LEAGUE", 80),
+    (257, "257", "US Open Cup", 1400, "CUP", 80),
+    (259, "259", "Canadian Championship", 1380, "CUP", 80),
     # --- CONCACAF club cups ---
-    (16, "16", "CONCACAF Champions Cup", 1450),
-    (767, "767", "CONCACAF League", 1400),
-    (1028, "1028", "CONCACAF Central American Cup", 1400),
+    (16, "16", "CONCACAF Champions Cup", 1450, "CONTINENTAL", 0),
+    (767, "767", "CONCACAF League", 1400, "CONTINENTAL", 0),
+    (1028, "1028", "CONCACAF Central American Cup", 1400, "CONTINENTAL", 0),
     # --- Centroamérica doméstica ---
-    (396, "396", "Nicaragua Primera Division", 1300),
-    (162, "162", "Costa Rica Primera Division", 1350),
-    (339, "339", "Guatemala Liga Nacional", 1300),
-    (234, "234", "Honduras Liga Nacional", 1320),
-    (370, "370", "El Salvador Primera Division", 1280),
-    (304, "304", "Liga Panamena de Futbol", 1300),
-    (416, "416", "Belize Premier League", 1250),
+    (396, "396", "Nicaragua Primera Division", 1300, "LEAGUE", 80),
+    (162, "162", "Costa Rica Primera Division", 1350, "LEAGUE", 80),
+    (339, "339", "Guatemala Liga Nacional", 1300, "LEAGUE", 80),
+    (234, "234", "Honduras Liga Nacional", 1320, "LEAGUE", 80),
+    (370, "370", "El Salvador Primera Division", 1280, "LEAGUE", 80),
+    (304, "304", "Liga Panamena de Futbol", 1300, "LEAGUE", 80),
+    (416, "416", "Belize Premier League", 1250, "LEAGUE", 80),
     # --- Inglaterra segunda división ---
-    (40, "40", "Championship", 1300),
-    
+    (40, "40", "Championship", 1300, "LEAGUE", 80),
+
 ]
 
 # Diccionario derivado para lookup por id_api.
 API_FOOTBALL_LEAGUES_BY_ID = {
-    lid: {"id": lid, "name": name, "initial_elo": elo}
-    for lid, code, name, elo in API_FOOTBALL_LEAGUES
+    lid: {
+        "id": lid,
+        "name": name,
+        "initial_elo": elo,
+        "kind": kind,
+        "home_advantage": hfa,
+    }
+    for lid, code, name, elo, kind, hfa in API_FOOTBALL_LEAGUES
 }
 
 # Elo system constants (see docs/elo.md)
 ELO_DEFAULT = 1500
+# Ventaja de localía por defecto (fallback cuando la competición no la
+# define explícitamente). docs/elo.md: liga nacional 70-90, selecciones
+# 50-80, Mundial/neutral 0. La localía real se toma de
+# Competition.home_advantage; este valor solo se usa en cálculos
+# manuales o si la competición no existe.
 ELO_HOME_ADVANTAGE = 80
+# Factor K por tipo de competición (docs/elo.md §Factor K).
+#   Mundial 30, Eliminatorias 25, Primera división/Copas nacionales 20,
+#   Amistosos 15. Equipos nuevos usan K=40 durante sus primeros
+#   ELO_NEW_TEAM_MATCHES partidos, ignorando el kind.
 ELO_K_DEFAULT = 20       # Clubes profesionales (ligas top)
-ELO_K_INTERNATIONAL = 30  # Torneos internacionales (WC, WCQ, Euro, etc.)
-ELO_K_MINOR = 25         # Ligas menores
-ELO_K_NEW = 40           # Equipos nuevos (primeros partidos)
+ELO_K_WORLD_CUP = 30
+ELO_K_QUALIFIERS = 25
+ELO_K_CUP = 20
+ELO_K_FRIENDLY = 15
+ELO_K_CONTINENTAL = 25
+ELO_K_NEW = 40
 ELO_NEW_TEAM_MATCHES = 20
-# IDs de competiciones internacionales (selecciones) que usan K mayor.
-# Derivado del catálogo semilla; coincide con API-Football league IDs.
-ELO_INTERNATIONAL_LEAGUE_IDS = frozenset({
-    1,    # World Cup
-    4,    # Euro Championship
-    9,    # Copa America
-    7,    # Asian Cup
-    6,    # Africa Cup of Nations
-    22,   # CONCACAF Gold Cup
-    536,  # CONCACAF Nations League
-    805,  # Copa Centroamericana
-    31, 32, 29, 30, 33, 34,  # World Cup Qualification (todas las confederaciones)
-    10,   # Friendlies (selecciones)
-    2,    # UEFA Champions League
-    3,    # UEFA Europa League
-    848,  # UEFA Europa Conference League
-    13,   # Copa Libertadores
-    16,   # CONCACAF Champions Cup
-})
-# Umbral de Elo inicial del catálogo semilla para clasificar ligas menores.
-# Competiciones con initial_elo < este valor usan K=25 en lugar de K=20.
-ELO_MINOR_LEAGUE_THRESHOLD = 1400
 
-# Forecast system constants (see docs/pronostico.md)
-FORECAST_FORM_MATCHES = 5
+# Forecast system constants (see docs/pronostico.md, docs/xG.md)
+# Forma reciente: dos ventanas (docs: Forma = 0.65·Forma20 + 0.35·Forma5).
+FORECAST_FORM_SHORT = 5
+FORECAST_FORM_LONG = 20
+FORECAST_FORM_SHORT_WEIGHT = 0.35
+FORECAST_FORM_LONG_WEIGHT = 0.65
+# Ponderación temporal exp(-Dias/180) según docs/xG.md §Ponderación temporal.
+FORECAST_DECAY_DAYS = 180
+# Ataque/defensa separados por local/visitante: mínimo de partidos por
+# condición para considerar el rating válido (si no, fallback Elo-only).
 FORECAST_MIN_HISTORY = 5
+FORECAST_MIN_VENUE_HISTORY = 3
+# Clamp de goles esperados (docs/xG.md §Normalización): 0.20 ≤ λ ≤ 4.00.
+FORECAST_LAMBDA_MIN = 0.20
+FORECAST_LAMBDA_MAX = 4.00
+# Factor Elo suave (no lineal). docs/xG.md §Corrección mediante Elo:
+# "función suave que evite exagerar las diferencias". Usamos una tanh
+# acotada: factor = 1 + gain·tanh(diff/scale). gain=0.5 limita el
+# desplazamiento del λ a ±50% por Elo.
+FORECAST_ELO_GAIN = 0.5
+FORECAST_ELO_SCALE = 800.0
+# Factor de forma multiplicativo sobre λ: ajuste leve (no dominante).
+# docs/xG.md: "La forma complementa las estadísticas históricas, pero
+# nunca las reemplaza." Limitamos el impacto a ±FORM_MAX_IMPACT.
+FORECAST_FORM_MAX_IMPACT = 0.20
 POISSON_MAX_GOALS = 5
 # Corrección Dixon-Coles para baja anotación. rho negativo incrementa la
 # probabilidad de 0-0 y 1-1 (Poisson independiente la subestima).

@@ -8,6 +8,7 @@ from django.utils.dateparse import parse_datetime
 
 from elo.engine import assign_initial_elo
 from matches.models import Match
+from stats.models import MatchStatistics
 from teams.models import Competition, Team, TeamCompetition
 
 # Mapeo de status de API-Football a Match.Status.
@@ -29,6 +30,31 @@ STATUS_MAP = {
     "AWD": Match.Status.AWARDED,
     "SUSP": Match.Status.SUSPENDED,
     "INT": Match.Status.SUSPENDED,
+}
+
+# Mapeo de tipo de estadística de API-Football a campo de MatchStatistics.
+# Las claves son los strings exactos que devuelve /fixtures/statistics.
+STATS_TYPE_MAP = {
+    "shots on goal": "shots_on_goal",
+    "shots off goal": "shots_off_goal",
+    "total shots": "shots_total",
+    "blocked shots": "shots_blocked",
+    "shots insidebox": "shots_inside_box",
+    "shots outsidebox": "shots_outside_box",
+    "shots inside box": "shots_inside_box",
+    "shots outside box": "shots_outside_box",
+    "ball possession": "possession",
+    "possession": "possession",
+    "possession (%)": "possession",
+    "corner kicks": "corners",
+    "offsides": "offsides",
+    "fouls": "fouls_committed",
+    "yellow cards": "yellow_cards",
+    "red cards": "red_cards",
+    "goalkeeper saves": "goalkeeper_saves",
+    "passes total": "passes_total",
+    "passes accurate": "passes_accurate",
+    "passing accuracy": "passes_accurate",
 }
 
 
@@ -87,6 +113,23 @@ def ensure_competition(league_data, season_str=""):
             defaults={"average_elo": initial},
         )
 
+    # Clasificar kind y localía desde el catálogo semilla (docs/elo.md).
+    # Las ligas descubiertas no listadas usan kind=LEAGUE y localía
+    # por defecto; se recalibran tras backfill.
+    from django.conf import settings
+    af = settings.API_FOOTBALL_LEAGUES_BY_ID.get(league_id)
+    if af is not None:
+        update_fields = []
+        if competition.kind != af.get("kind", Competition.Kind.LEAGUE):
+            competition.kind = af.get("kind", Competition.Kind.LEAGUE)
+            update_fields.append("kind")
+        hfa = af.get("home_advantage", 80)
+        if competition.home_advantage != hfa:
+            competition.home_advantage = hfa
+            update_fields.append("home_advantage")
+        if update_fields:
+            competition.save(update_fields=update_fields)
+
     return competition, created
 
 
@@ -134,11 +177,73 @@ def ensure_team(team_data, competition, season_str=""):
     return team_obj, created
 
 
+def _importance_from_competition(competition):
+    """Importancia competitiva derivada del kind de la competición.
+
+    docs/pronosticos_extra.md §Variables contextuales. El campo Match.importance
+    etiqueta el partido para futuros ajustes de modelos secundarios.
+    """
+    kind = (competition.kind if competition else None) or Competition.Kind.LEAGUE
+    return {
+        Competition.Kind.LEAGUE: Match.Importance.LEAGUE,
+        Competition.Kind.CUP: Match.Importance.CUP,
+        Competition.Kind.CONTINENTAL: Match.Importance.KNOCKOUT,
+        Competition.Kind.WORLD_CUP: Match.Importance.INTERNATIONAL,
+        Competition.Kind.INTERNATIONAL: Match.Importance.INTERNATIONAL,
+        Competition.Kind.QUALIFIERS: Match.Importance.KNOCKOUT,
+        Competition.Kind.FRIENDLY: Match.Importance.FRIENDLY,
+        Competition.Kind.OTHER: Match.Importance.LEAGUE,
+    }.get(kind, Match.Importance.LEAGUE)
+
+
+def _neutral_default(competition):
+    """Sede neutral por defecto según el tipo de competición.
+
+    Las fases finales internacionales (Mundial, torneos de selecciones,
+    copas continentales) se disputan en sede neutral: la ventaja de
+    localía no aplica (docs/elo.md §Ventaja de localía). El campo
+    venue.neutral de API-Football, cuando está presente, tiene
+    precedencia y sobreescribe este default.
+    """
+    kind = (competition.kind if competition else None) or Competition.Kind.LEAGUE
+    return kind in (
+        Competition.Kind.WORLD_CUP,
+        Competition.Kind.INTERNATIONAL,
+        Competition.Kind.CONTINENTAL,
+    )
+
+
+def _rest_days(team, before_date):
+    """Días desde el último partido finalizado del equipo antes de
+    `before_date`. None si no hay historial (docs/api.md §Variables
+    contextuales)."""
+    last = (
+        Match.objects.filter(
+            _team_q(team),
+            status=Match.Status.FINISHED,
+            utc_date__lt=before_date,
+            home_goals__isnull=False,
+            away_goals__isnull=False,
+        )
+        .order_by("-utc_date")
+        .first()
+    )
+    if last is None:
+        return None
+    return max((before_date - last.utc_date).days, 0)
+
+
+def _team_q(team):
+    from django.db.models import Q
+    return Q(home_team=team) | Q(away_team=team)
+
+
 def save_match(fixture_data, competition, home, away, season_str=""):
     """Crea o actualiza un partido desde un fixture de API-Football.
     Goles: score.fulltime (90 + extra time). Si status=PEN, Elo tratará
     el resultado como empate (la lógica está en apply_elo_update, que
-    usa los goles fulltime directamente).
+    usa los goles fulltime directamente). Puebla además sede neutral,
+    estadio, árbitro, importancia y descanso de cada equipo.
     """
     fixture = fixture_data.get("fixture", {}) or {}
     match_id = fixture.get("id")
@@ -163,22 +268,143 @@ def save_match(fixture_data, competition, home, away, season_str=""):
     league = fixture_data.get("league", {}) or {}
     round_name = league.get("round") or ""
 
+    venue = fixture.get("venue", {}) or {}
+    venue_name = venue.get("name", "") or ""
+    # API-Football marca venue.neutral como bool (cuando está presente).
+    neutral_raw = venue.get("neutral")
+    if neutral_raw is None:
+        is_neutral = _neutral_default(competition)
+    else:
+        is_neutral = bool(neutral_raw)
+
+    referee = fixture.get("referee") or ""
+    importance = _importance_from_competition(competition)
+
+    defaults = {
+        "competition": competition,
+        "season": season_str,
+        "round": round_name,
+        "status": status,
+        "status_short": status_short_raw,
+        "utc_date": utc_date,
+        "home_team": home,
+        "away_team": away,
+        "home_goals": home_goals,
+        "away_goals": away_goals,
+        "venue": venue_name,
+        "referee": referee,
+        "is_neutral": is_neutral,
+        "importance": importance,
+    }
+
     match, created = Match.objects.update_or_create(
         id_api=match_id,
-        defaults={
-            "competition": competition,
-            "season": season_str,
-            "round": round_name,
-            "status": status,
-            "status_short": status_short_raw,
-            "utc_date": utc_date,
-            "home_team": home,
-            "away_team": away,
-            "home_goals": home_goals,
-            "away_goals": away_goals,
-        },
+        defaults=defaults,
     )
+
+    # Días de descanso: solo recalculamos si el partido ya tiene fecha
+    # y equipo. Es costoso pero razonable por partido. Omitimos en
+    # partidos historicos masivos importados vía load_history porque el
+    # backfill de larga cola ya no aporta descanso relevante.
+    if home is not None and away is not None:
+        # Solo actualiza si no estaba ya calculado (evita quemar DB
+        # en cada re-sync del mismo partido).
+        if created or match.rest_days_home is None:
+            match.rest_days_home = _rest_days(home, utc_date)
+        if created or match.rest_days_away is None:
+            match.rest_days_away = _rest_days(away, utc_date)
+        match.save(update_fields=["rest_days_home", "rest_days_away"])
+
     return match, created
+
+
+def _parse_stat_value(field, raw):
+    """Convierte el valor crudo de API-Football al tipo correcto del campo."""
+    if raw is None:
+        return None
+    if field == "possession":
+        # Suele venir como "55%" o "55".
+        s = str(raw).strip().replace("%", "")
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _score_half_goals(fixture_data):
+    """Goles por equipo en primero y segundo tiempo (o None si el
+    endpoint no trae halftime)."""
+    score = fixture_data.get("score", {}) or {}
+    ht = score.get("halftime", {}) or {}
+    ft = score.get("fulltime", {}) or {}
+    ht_h = ht.get("home")
+    ht_a = ht.get("away")
+    ft_h = ft.get("home")
+    ft_a = ft.get("away")
+    out = {}
+    if ht_h is not None and ft_h is not None:
+        out["home_first"] = ht_h
+        out["home_second"] = max(ft_h - (ht_h or 0), 0)
+    if ht_a is not None and ft_a is not None:
+        out["away_first"] = ht_a
+        out["away_second"] = max(ft_a - (ht_a or 0), 0)
+    return out
+
+
+def save_match_statistics(match, client, fixture_data=None):
+    """Descarga y persiste las estadísticas por equipo de un partido.
+
+    Crea/actualiza dos filas de MatchStatistics (una por equipo). Si la
+    respuesta viene vacía (fixture sin stats disponibles) no hace nada.
+
+    `fixture_data` opcional permite completar goles por tiempo (half/
+    second) desde el fixture ya consultado sin llamada extra.
+    """
+    teams_data = client.get_fixture_statistics(match.id_api)
+    if not teams_data:
+        return 0
+
+    half = _score_half_goals(fixture_data) if fixture_data else {}
+
+    created = 0
+    for entry in teams_data:
+        team_info = entry.get("team", {}) or {}
+        team_id = team_info.get("id")
+        team = Team.objects.filter(id_api=team_id).first()
+        if team is None:
+            continue
+        is_home = team.pk == match.home_team_id
+
+        defaults = {"team": team, "is_home": is_home}
+        if is_home:
+            if "home_first" in half:
+                defaults["goals_first_half"] = half["home_first"]
+                defaults["goals_second_half"] = half["home_second"]
+        else:
+            if "away_first" in half:
+                defaults["goals_first_half"] = half["away_first"]
+                defaults["goals_second_half"] = half["away_second"]
+
+        for stat in entry.get("statistics", []) or []:
+            type_name = (stat.get("type") or "").strip().lower()
+            field = STATS_TYPE_MAP.get(type_name)
+            if field is None:
+                continue
+            parsed = _parse_stat_value(field, stat.get("value"))
+            if parsed is not None:
+                defaults[field] = parsed
+
+        MatchStatistics.objects.update_or_create(
+            match=match,
+            team=team,
+            defaults=defaults,
+        )
+        created += 1
+    return created
 
 
 def discover_leagues(leagues_response):

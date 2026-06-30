@@ -4,13 +4,20 @@ from django.conf import settings
 
 from elo.models import EloLog
 from matches.models import Match
+from teams.models import Competition
 
 
-def expected_probability(elo_a, elo_b, home_advantage=None, is_home=True):
+def expected_probability(elo_a, elo_b, home_advantage=None, is_neutral=False):
+    """Probabilidad esperada de A (local) contra B (visitante).
+
+    docs/elo.md: la localía modifica únicamente el cálculo de la
+    probabilidad esperada. is_neutral=True (Mundial, fases finales en
+    sede neutral) anula la ventaja de localía.
+    """
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
-    effective_a = elo_a + (home_advantage if is_home else 0)
-    diff = effective_a - elo_b
+    advantage = 0 if is_neutral else home_advantage
+    diff = (elo_a + advantage) - elo_b
     e_a = 1 / (1 + 10 ** (-diff / 400))
     return e_a, 1 - e_a
 
@@ -39,32 +46,28 @@ def result_score(goals_for, goals_against):
 def k_factor(matches_played, competition=None):
     """K-factor según antigüedad del equipo y tipo de competición.
 
-    Equipos nuevos (< ELO_NEW_TEAM_MATCHES) usan K mayor para converger
-    rápido. En torneos internacionales (WC, WCQ, copas continentales) se
-    aplica K mayor porque son partidos de mayor peso. Clubes profesionales
-    usan K=20, ligas menores K=25 (ver docs/elo.md Paso 7).
-
-    Clasificación de competición:
-      * Internacional: en settings.ELO_INTERNATIONAL_LEAGUE_IDS → K=30.
-      * Liga menor: catálogo semilla con initial_elo < ELO_MINOR_THRESHOLD → K=25.
-      * Resto (clubes top): K=20.
+    docs/elo.md §Factor K:
+      Mundial 30, Eliminatorias 25, Copa continental 25, Primera
+      división y Copas nacionales 20, Amistosos 15. Equipos nuevos
+      (< ELO_NEW_TEAM_MATCHES) usan K=40 para converger rápido,
+      ignorando el tipo de competición.
     """
     if matches_played < settings.ELO_NEW_TEAM_MATCHES:
         return settings.ELO_K_NEW
 
-    if competition is not None:
-        intl_ids = getattr(settings, "ELO_INTERNATIONAL_LEAGUE_IDS", frozenset())
-        if competition.id_api in intl_ids:
-            return settings.ELO_K_INTERNATIONAL
+    if competition is None:
+        return settings.ELO_K_DEFAULT
 
-        minor_threshold = getattr(settings, "ELO_MINOR_LEAGUE_THRESHOLD", 1400)
-        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_ID", {}).get(
-            competition.id_api
-        )
-        if af is not None and af["initial_elo"] < minor_threshold:
-            return settings.ELO_K_MINOR
-
-    return settings.ELO_K_DEFAULT
+    kind = getattr(competition, "kind", None) or Competition.Kind.LEAGUE
+    return {
+        Competition.Kind.WORLD_CUP: settings.ELO_K_WORLD_CUP,
+        Competition.Kind.QUALIFIERS: settings.ELO_K_QUALIFIERS,
+        Competition.Kind.CONTINENTAL: settings.ELO_K_CONTINENTAL,
+        Competition.Kind.CUP: settings.ELO_K_CUP,
+        Competition.Kind.FRIENDLY: settings.ELO_K_FRIENDLY,
+        Competition.Kind.LEAGUE: settings.ELO_K_DEFAULT,
+        Competition.Kind.INTERNATIONAL: settings.ELO_K_CONTINENTAL,
+    }.get(kind, settings.ELO_K_DEFAULT)
 
 
 def compute_elo_update(
@@ -77,12 +80,16 @@ def compute_elo_update(
     home_advantage=None,
     status_short="",
     competition=None,
+    is_neutral=False,
 ):
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
 
     e_home, e_away = expected_probability(
-        home_elo, away_elo, home_advantage=home_advantage, is_home=True
+        home_elo,
+        away_elo,
+        home_advantage=home_advantage,
+        is_neutral=is_neutral,
     )
 
     # Los partidos decididos por penales (status PEN) se tratan como empate
@@ -141,6 +148,10 @@ def apply_elo_update(match, regenerate_forecasts=True):
     home = match.home_team
     away = match.away_team
 
+    home_advantage = (
+        match.competition.home_advantage
+        if match.competition_id else settings.ELO_HOME_ADVANTAGE
+    )
     result = compute_elo_update(
         home_elo=home.elo,
         away_elo=away.elo,
@@ -150,6 +161,8 @@ def apply_elo_update(match, regenerate_forecasts=True):
         away_played=away.matches_played,
         status_short=match.status_short,
         competition=match.competition,
+        is_neutral=match.is_neutral,
+        home_advantage=home_advantage,
     )
 
     match.home_elo_before = home.elo
@@ -289,3 +302,45 @@ def process_pending_matches(limit=None):
                 "Error aplicando Elo al partido %s", match.id_api
             )
     return processed
+
+
+def regress_elo(season, regress_factor=0.90, league_weight=0.10):
+    """Regresión de Elo entre temporadas (docs/elo.md §Regresión).
+
+    EloNuevo = regress_factor·EloAnterior + league_weight·EloPromedioLiga
+
+    Para cada equipo que tenga partidos en `season`, se calcula el Elo
+    promedio de las ligas (LeagueStrength) donde participó esa temporada
+    y se aplica la regresión. Idempotente: marca Team.last_regressed_season
+    y omite equipos ya regresados a `season` (o a una posterior).
+
+    Devuelve el número de equipos actualizados.
+    """
+    from django.db.models import Avg
+
+    from elo.models import LeagueStrength
+    from teams.models import Team, TeamCompetition
+
+    updated = 0
+    teams = Team.objects.exclude(last_regressed_season=season)
+    for team in teams.iterator():
+        # Promedio de LeagueStrength de las competiciones donde el
+        # equipo estuvo durante `season`.
+        comp_ids = list(
+            TeamCompetition.objects.filter(
+                team=team, season=season
+            ).values_list("competition_id", flat=True)
+        )
+        if not comp_ids:
+            continue
+        avg = LeagueStrength.objects.filter(
+            competition_id__in=comp_ids, season=season
+        ).aggregate(avg=Avg("average_elo"))["avg"]
+        if avg is None:
+            continue
+        new_elo = regress_factor * team.elo + league_weight * avg
+        team.elo = round(new_elo, 2)
+        team.last_regressed_season = season
+        team.save(update_fields=["elo", "last_regressed_season"])
+        updated += 1
+    return updated
