@@ -61,10 +61,11 @@ API-Football limita por plan. Los valores relevantes para Alpha Bet:
 - **Pro ($19/mo)**: sin restricción de fechas; `/fixtures/statistics` en todas
   las competiciones; seasons históricas y temporada actual.
 
-`settings.API_FOOTBALL_LEAGUES` es un catálogo semilla para calibrar Elo
-(initial_elo, kind, home_advantage por competición). La cobertura real se
-descubre dinámicamente con `sync_competitions` (filtra femenil/juvenil/futsal/
-beach/esports).
+`LeagueStrength.average_elo` se inicializa con `ELO_DEFAULT` (1500) para cada
+competición × temporada. `recompute_league_strength` recalibra con los promedios
+reales tras el backfill. `Competition.kind` y `home_advantage` usan los defaults
+del modelo (LEAGUE, 80). La cobertura real se descubre dinámicamente con
+`sync_competitions` (filtra femenil/juvenil/futsal/beach/esports).
 
 ---
 

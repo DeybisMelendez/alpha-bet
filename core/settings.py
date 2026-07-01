@@ -135,9 +135,9 @@ MEDIA_URL = "/media/"
 #
 # Competiciones de clubes, selecciones nacionales y amistosos. La
 # cobertura se descubre dinámicamente vía /leagues (ver comando
-# sync_competitions). API_FOOTBALL_LEAGUES es solo un catálogo semilla
-# para calibrar el Elo inicial por liga; las ligas descubiertas que no
-# estén listadas usan ELO_DEFAULT.
+# sync_competitions). Elo inicial: ELO_DEFAULT (1500) para equipos
+# nuevos en ligas sin LeagueStrength; se recalibra con
+# recompute_league_strength tras el backfill.
 #
 # Plan Free: 100 req/día, 10/min, solo temporadas 2022-2024, y date=
 # restringido a hoy ± 1 día (ventana rolling de 3 días).
@@ -150,79 +150,9 @@ API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
 API_FOOTBALL_RATE_LIMIT_SECONDS = 0.25
 API_FOOTBALL_DAILY_BUDGET = 7000
 
-# Catálogo semilla de calibración Elo: (league_id, code, nombre, elo_inicial).
-# code se almacena como Competition.code (el league_id como string).
-# initial_elo se usa al crear LeagueStrength y al asignar Elo a equipos
-# nuevos (ver docs/elo.md). Las ligas descubiertas no listadas aquí usan
-# ELO_DEFAULT y se recalibran con recompute_league_strength tras el backfill.
-API_FOOTBALL_LEAGUES = [
-    # --- Ligas europeas top ---
-    (39, "39", "Premier League", 1600, "LEAGUE", 80),
-    (140, "140", "La Liga", 1570, "LEAGUE", 80),
-    (78, "78", "Bundesliga", 1560, "LEAGUE", 80),
-    (135, "135", "Serie A", 1550, "LEAGUE", 80),
-    (61, "61", "Ligue 1", 1540, "LEAGUE", 80),
-    (88, "88", "Eredivisie", 1450, "LEAGUE", 80),
-    (94, "94", "Primeira Liga", 1450, "LEAGUE", 80),
-    # --- Sudamérica ---
-    (13, "13", "Copa Libertadores", 1500, "CONTINENTAL", 0),
-    (11, "11", "Copa Sudamericana", 1450, "CONTINENTAL", 0),
-    (71, "71", "Brasileirão Serie A", 1490, "LEAGUE", 80),
-    (128, "128", "Liga Profesional Argentina", 1480, "LEAGUE", 80),
-    # --- Copas europeas ---
-    (2, "2", "UEFA Champions League", 1600, "CONTINENTAL", 0),
-    (3, "3", "UEFA Europa League", 1500, "CONTINENTAL", 0),
-    (848, "848", "UEFA Europa Conference League", 1450, "CONTINENTAL", 0),
-    # --- Selecciones (todas las confederaciones) ---
-    (1, "1", "World Cup", 1580, "WORLD_CUP", 0),
-    (4, "4", "Euro Championship", 1580, "INTERNATIONAL", 0),
-    (31, "31", "World Cup Qualification CONCACAF", 1550, "QUALIFIERS", 50),
-    (32, "32", "World Cup Qualification Europe", 1550, "QUALIFIERS", 50),
-    (29, "29", "World Cup Qualification Africa", 1500, "QUALIFIERS", 50),
-    (30, "30", "World Cup Qualification Asia", 1500, "QUALIFIERS", 50),
-    (33, "33", "World Cup Qualification Oceania", 1450, "QUALIFIERS", 50),
-    (34, "34", "World Cup Qualification South America", 1560, "QUALIFIERS", 50),
-    (9, "9", "Copa America", 1560, "INTERNATIONAL", 0),
-    (7, "7", "Asian Cup", 1500, "INTERNATIONAL", 0),
-    (6, "6", "Africa Cup of Nations", 1500, "INTERNATIONAL", 0),
-    (22, "22", "CONCACAF Gold Cup", 1500, "INTERNATIONAL", 0),
-    (536, "536", "CONCACAF Nations League", 1500, "INTERNATIONAL", 0),
-    (805, "805", "Copa Centroamericana", 1450, "INTERNATIONAL", 0),
-    (10, "10", "Friendlies", 1500, "FRIENDLY", 50),
-    # --- Norteamérica ---
-    (253, "253", "MLS", 1450, "LEAGUE", 80),
-    (262, "262", "Liga MX", 1480, "LEAGUE", 80),
-    (479, "479", "Canadian Premier League", 1380, "LEAGUE", 80),
-    (257, "257", "US Open Cup", 1400, "CUP", 80),
-    (259, "259", "Canadian Championship", 1380, "CUP", 80),
-    # --- CONCACAF club cups ---
-    (16, "16", "CONCACAF Champions Cup", 1450, "CONTINENTAL", 0),
-    (767, "767", "CONCACAF League", 1400, "CONTINENTAL", 0),
-    (1028, "1028", "CONCACAF Central American Cup", 1400, "CONTINENTAL", 0),
-    # --- Centroamérica doméstica ---
-    (396, "396", "Nicaragua Primera Division", 1300, "LEAGUE", 80),
-    (162, "162", "Costa Rica Primera Division", 1350, "LEAGUE", 80),
-    (339, "339", "Guatemala Liga Nacional", 1300, "LEAGUE", 80),
-    (234, "234", "Honduras Liga Nacional", 1320, "LEAGUE", 80),
-    (370, "370", "El Salvador Primera Division", 1280, "LEAGUE", 80),
-    (304, "304", "Liga Panamena de Futbol", 1300, "LEAGUE", 80),
-    (416, "416", "Belize Premier League", 1250, "LEAGUE", 80),
-    # --- Inglaterra segunda división ---
-    (40, "40", "Championship", 1300, "LEAGUE", 80),
-
-]
-
-# Diccionario derivado para lookup por id_api.
-API_FOOTBALL_LEAGUES_BY_ID = {
-    lid: {
-        "id": lid,
-        "name": name,
-        "initial_elo": elo,
-        "kind": kind,
-        "home_advantage": hfa,
-    }
-    for lid, code, name, elo, kind, hfa in API_FOOTBALL_LEAGUES
-}
+# Elo inicial para nuevos equipos cuando no existe LeagueStrength.
+# Equipos nuevos en ligas sin historial reciben ELO_DEFAULT (1500);
+# tras backfill, recompute_league_strength recalibra con promedios reales.
 
 # Elo system constants (see docs/elo.md)
 ELO_DEFAULT = 1500

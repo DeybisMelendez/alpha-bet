@@ -66,8 +66,7 @@ Valores recomendados:
 Este valor debe almacenarse por competición para permitir ajustes futuros.
 
 > **Implementación.** La localía se guarda en
-> `Competition.home_advantage` (default 80) y se infiere al importar
-> desde el catálogo `API_FOOTBALL_LEAGUES_BY_ID`. La fase final de un
+> `Competition.home_advantage` (default 80). La fase final de un
 > Mundial o partidos en sede neutral usan `Match.is_neutral`, que
 > anula la localía en `forecasts/engine.py`.
 

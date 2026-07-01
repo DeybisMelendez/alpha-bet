@@ -66,11 +66,11 @@ Guardar:
 
 > **Implementación.** Modelo `teams.models.Competition`. La "fortaleza
 > inicial" vive en `LeagueStrength.average_elo` (modelo separado, clave
-> `competition × season`) y en el catálogo semilla
-> `settings.API_FOOTBALL_LEAGUES_BY_ID[id]["initial_elo"]`. El campo
+> `competition × season`), inicializado con `ELO_DEFAULT` (1500) y
+> recalibrado con `recompute_league_strength` tras el backfill. El campo
 > `home_advantage` guarda la ventaja de localía por competición y `kind`
 > clasifica el nivel competitivo (liga/copa/continental/internacional/
-> mundial/eliminatorias/amistoso).
+> mundial/eliminatorias/amistoso), ambos con valores por defecto.
 
 ---
 

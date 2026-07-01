@@ -103,32 +103,12 @@ def ensure_competition(league_data, season_str=""):
     )
 
     if season_str:
-        from django.conf import settings
         from elo.models import LeagueStrength
-        af = settings.API_FOOTBALL_LEAGUES_BY_ID.get(league_id)
-        initial = af["initial_elo"] if af else settings.ELO_DEFAULT
         LeagueStrength.objects.get_or_create(
             competition=competition,
             season=season_str,
-            defaults={"average_elo": initial},
+            defaults={"average_elo": settings.ELO_DEFAULT},
         )
-
-    # Clasificar kind y localía desde el catálogo semilla (docs/elo.md).
-    # Las ligas descubiertas no listadas usan kind=LEAGUE y localía
-    # por defecto; se recalibran tras backfill.
-    from django.conf import settings
-    af = settings.API_FOOTBALL_LEAGUES_BY_ID.get(league_id)
-    if af is not None:
-        update_fields = []
-        if competition.kind != af.get("kind", Competition.Kind.LEAGUE):
-            competition.kind = af.get("kind", Competition.Kind.LEAGUE)
-            update_fields.append("kind")
-        hfa = af.get("home_advantage", 80)
-        if competition.home_advantage != hfa:
-            competition.home_advantage = hfa
-            update_fields.append("home_advantage")
-        if update_fields:
-            competition.save(update_fields=update_fields)
 
     return competition, created
 

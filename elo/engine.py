@@ -230,15 +230,7 @@ def assign_initial_elo(team, competition, season=""):
     if strength is not None:
         team.elo = strength.average_elo
     else:
-        # Catálogo semilla de calibración por id_api. Las ligas no
-        # listadas usan ELO_DEFAULT y se recalibran tras el backfill.
-        af = getattr(settings, "API_FOOTBALL_LEAGUES_BY_ID", {}).get(
-            competition.id_api
-        )
-        if af is not None:
-            team.elo = af["initial_elo"]
-        else:
-            team.elo = settings.ELO_DEFAULT
+        team.elo = settings.ELO_DEFAULT
     return team.elo
 
 

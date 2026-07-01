@@ -82,8 +82,9 @@ Para ejecución recurrente vía cron (ej. 8:00 AM):
 - Language: Spanish (LANGUAGE_CODE=`es-ni`, TIME_ZONE=`America/Managua`)
 - API-Football (api-sports.io v3) is the **single data source** for clubs,
   national teams, and friendlies. No `source` field; uniqueness is per `id_api`
-- `API_FOOTBALL_LEAGUES` in settings is a seed catalog for Elo calibration;
-  real coverage is discovered dynamically via `/leagues` (`sync_competitions`)
+- `ELO_DEFAULT` (1500) is used for new teams without a `LeagueStrength`;
+  `recompute_league_strength` recalibrates after backfill;
+  `API_FOOTBALL_LEAGUES` has been removed
 - `BackfillJob` (app `api_client`) is a persistent queue powering
   `load_history`'s progressive, idempotent, resumable backfill
 - Plan Pro ($19/mo) required to backfill seasons outside 2022-2024 and the
