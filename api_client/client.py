@@ -11,17 +11,22 @@ from api_client.models import ApiResponseCache
 logger = logging.getLogger("alpha")
 
 
-class ApiFootballClient:
-    """Cliente para api-football.com (api-sports.io v3).
+class FootballDataClient:
+    """Cliente para football-data.org (API v4).
 
     Única fuente de datos. La caché ApiResponseCache (TTL configurable,
     default 60 min) evita quemar requests durante reintentos y backfill
-    interrumpido. El header x-ratelimit-requests-remaining se expose vía
+    interrumpido. El header X-Requests-Available-Minute se expone vía
     last_rate_remaining para que el backfill pueda cortar antes de tocar
-    el techo diario.
+    el techo por minuto (plan Free: 10 req/min).
+
+    Plan Free: solo 12 competiciones (settings.FOOTBALL_DATA_FREE_COMPETITION_CODES);
+    sin bookings, alineaciones ni estadísticas agregadas. Las temporadas
+    históricas de las 12 competiciones Free son accesibles vía
+    /v4/competitions/{id}/matches?season=YYYY.
     """
 
-    BASE_URL = "https://v3.football.api-sports.io"
+    BASE_URL = "https://api.football-data.org"
 
     def __init__(
         self,
@@ -30,18 +35,23 @@ class ApiFootballClient:
         cache_ttl_minutes=None,
         timeout=30,
     ):
-        self.token = token or settings.API_FOOTBALL_KEY
-        self.base_url = (base_url or settings.API_FOOTBALL_BASE_URL).rstrip("/")
+        self.token = token or settings.FOOTBALL_DATA_TOKEN
+        self.base_url = (base_url or settings.FOOTBALL_DATA_BASE_URL).rstrip("/")
         self.cache_ttl = cache_ttl_minutes or settings.API_CACHE_TTL_MINUTES
         self.timeout = timeout
         self.session = requests.Session()
-        self.session.headers.update({"x-apisports-key": self.token})
+        self.session.headers.update({"X-Auth-Token": self.token})
+        # Requests restantes en la ventana actual (header
+        # X-Requests-Available-Minute). Lo lee el backfill para cortar a
+        # tiempo.
         self.last_rate_remaining = None
 
     def _build_url(self, path, params=None):
         url = f"{self.base_url}/{path.lstrip('/')}"
         if params:
-            url = f"{url}?{urlencode(params)}"
+            clean = {k: v for k, v in params.items() if v is not None}
+            if clean:
+                url = f"{url}?{urlencode(clean)}"
         return url
 
     def _is_cache_fresh(self, cache):
@@ -60,15 +70,24 @@ class ApiFootballClient:
 
         response = self.session.get(url, timeout=self.timeout)
         if response.status_code == 429:
-            # Rate limit por minuto: esperar 60s y reintentar una vez.
-            logger.warning("API-Football 429, esperando 60s para reintentar...")
-            time.sleep(60)
+            # Rate limit por minuto: esperar el reset counter y reintentar
+            # una vez. El header X-RequestCounter-Reset indica los segundos
+            # hasta el reset de la ventana.
+            reset = response.headers.get("X-RequestCounter-Reset", "60")
+            try:
+                wait = int(reset)
+            except ValueError:
+                wait = 60
+            logger.warning(
+                "football-data.org 429, esperando %ss para reintentar...", wait
+            )
+            time.sleep(max(wait, 1))
             response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
         body = response.json()
 
-        # Exponer remaining del techo diario (si viene en headers).
-        remaining = response.headers.get("x-ratelimit-requests-remaining")
+        # Exponer remaining de la ventana por minuto (si viene en headers).
+        remaining = response.headers.get("X-Requests-Available-Minute")
         if remaining is not None:
             try:
                 self.last_rate_remaining = int(remaining)
@@ -81,68 +100,101 @@ class ApiFootballClient:
             )
         return body
 
-    def _response(self, path, params=None, use_cache=True):
-        return self._get(path, params=params, use_cache=use_cache).get("response", [])
+    def _list(self, path, params=None, use_cache=True):
+        """Devuelve la lista 'matches'/'teams'/'competitions' del envelope."""
+        body = self._get(path, params=params, use_cache=use_cache)
+        if isinstance(body, dict):
+            key = self._list_key(path)
+            return body.get(key, []) or []
+        return body or []
 
-    def get_countries(self):
-        """Lista de países disponibles."""
-        return self._response("/countries")
+    @staticmethod
+    def _list_key(path):
+        """Nombre de la clave de lista según el endpoint (v4)."""
+        if path.startswith("/v4/competitions"):
+            if path.endswith("/matches"):
+                return "matches"
+            if path.endswith("/teams"):
+                return "teams"
+            if path.endswith("/scorers"):
+                return "scorers"
+            return "competitions"
+        if path.startswith("/v4/matches"):
+            return "matches"
+        if path.startswith("/v4/teams"):
+            return "teams"
+        if path.startswith("/v4/areas"):
+            return "areas"
+        return "response"
 
-    def get_all_seasons(self):
-        """Array plano de años con cobertura en el plan actual (vía
-        /leagues/seasons). Útil para detectar el rango accesible y
-        confirmar si la key tiene plan Pro (incluye 2025+)."""
-        return self._get("/leagues/seasons").get("response", [])
+    # ------------------------------------------------------------------ #
+    # Competiciones
+    # ------------------------------------------------------------------ #
 
-    def get_leagues(self, current=None, search=None, country=None):
-        """Lista competiciones. current=True → solo ligas en temporada
-        activa (catálogo más pequeño). Sin filtros → todo el catálogo
-        (apta para descubrimiento total con plan Pro)."""
-        params = {}
-        if current is not None:
-            params["current"] = "true" if current else "false"
-        if search:
-            params["search"] = search
-        if country:
-            params["country"] = country
-        return self._response("/leagues", params=params)
+    def get_competitions(self):
+        """Lista todas las competiciones del catálogo (plan Free: las 12
+        accesibles devuelven datos; las demás 403 al pedir subrecursos)."""
+        return self._list("/v4/competitions")
 
-    def get_league(self, league_id):
-        """Detalle de una liga, incluyendo seasons[] con coverage por
-        temporada (sirve para saber qué años están disponibles para
-        backfill)."""
-        return self._response("/leagues", params={"id": league_id})
+    def get_competition(self, competition_id):
+        """Detalle de una competición, incluyendo seasons[] (sirve para
+        saber qué años hay disponibles para backfill)."""
+        return self._get(f"/v4/competitions/{competition_id}")
 
-    def get_teams(self, league, season):
-        """Equipos participantes en una liga/temporada."""
-        return self._response(
-            "/teams", params={"league": league, "season": season}
+    def get_competition_matches(
+        self,
+        competition_id,
+        season=None,
+        date_from=None,
+        date_to=None,
+        status=None,
+        matchday=None,
+    ):
+        """Partidos de una competición. Por defecto la temporada activa;
+        usar season=YYYY para temporadas históricas (backfill)."""
+        params = {
+            "season": season,
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "status": status,
+            "matchday": matchday,
+        }
+        return self._list(
+            f"/v4/competitions/{competition_id}/matches", params=params
         )
 
-    def get_fixtures_by_date(self, date_str):
-        """Partidos de todas las ligas en una fecha (YYYY-MM-DD). En
-        plan Free restringido a hoy ± 1 día; en plan Pro sin restricción."""
-        return self._response("/fixtures", params={"date": date_str})
-
-    def get_fixtures(self, league, season, date_from=None, date_to=None):
-        """Partidos de una liga × temporada. api-football retorna todo
-        en una sola respuesta (cientos de fixtures); si la respuesta
-        trae paging.total>1 se debe paginar (raro en fixtures de liga)."""
-        params = {"league": league, "season": season}
-        if date_from:
-            params["from"] = date_from
-        if date_to:
-            params["to"] = date_to
-        return self._response("/fixtures", params=params)
-
-    def get_fixture_statistics(self, fixture_id):
-        """Estadísticas por equipo de un partido finalizado.
-
-        Endpoint /fixtures/statistics?fixture=ID. Devuelve una lista de
-        entradas (una por equipo) con statistics[] (pares tipo/valor).
-        Disponible normalmente solo tras finalizado el partido. Plan
-        Free puede no incluir este endpoint en competiciones select.
-        """
-        return self._response(
-            "/fixtures/statistics", params={"fixture": fixture_id}
+    def get_competition_teams(self, competition_id, season=None):
+        """Equipos participantes en una competición/temporada."""
+        params = {"season": season}
+        return self._list(
+            f"/v4/competitions/{competition_id}/teams", params=params
         )
+
+    # ------------------------------------------------------------------ #
+    # Partidos
+    # ------------------------------------------------------------------ #
+
+    def get_matches(
+        self,
+        date_from=None,
+        date_to=None,
+        competitions=None,
+        status=None,
+    ):
+        """Partidos de todas las competiciones accesibles en un rango de
+        fechas. Una sola petición cubre toda la ventana del daily sync."""
+        params = {
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "competitions": competitions,
+            "status": status,
+        }
+        return self._list("/v4/matches", params=params)
+
+    # ------------------------------------------------------------------ #
+    # Equipos
+    # ------------------------------------------------------------------ #
+
+    def get_team(self, team_id):
+        """Detalle de un equipo (founded, venue, clubColors, ...)."""
+        return self._get(f"/v4/teams/{team_id}")

@@ -11,10 +11,10 @@ from api_client.models import ApiResponseCache
 class Command(BaseCommand):
     help = (
         "Orquestador diario: refresca partidos de la ventana semanal "
-        "(API-Football date=hoy±1), procesa Elo de finalizados, genera "
-        "pronósticos de programados, poda pronósticos stale fuera de "
-        "ventana y purga la caché de la API vencida. Pensado para "
-        "ejecutarse una vez al día vía cron."
+        "(football-data.org /v4/matches con dateFrom/dateTo), procesa Elo "
+        "de finalizados, genera pronósticos de programados, poda "
+        "pronósticos stale fuera de ventana y purga la caché de la API "
+        "vencida. Pensado para ejecutarse una vez al día vía cron."
     )
 
     def add_arguments(self, parser):

@@ -2,9 +2,21 @@
 
 ## Objetivo
 
-El objetivo de este documento es definir cómo aprovechar la información adicional disponible en **API-Football** para mejorar la precisión del sistema de pronósticos y ampliar la cantidad de mercados que pueden modelarse.
+El objetivo de este documento es definir cómo aprovechar la información
+adicional disponible en la fuente de datos para mejorar la precisión del
+sistema de pronósticos y ampliar la cantidad de mercados que pueden
+modelarse.
 
-A diferencia del documento **pronostico_v2.md**, este documento no explica el modelo matemático principal, sino las variables adicionales ("features") que enriquecen dicho modelo.
+A diferencia del documento **pronostico_v2.md**, este documento no explica
+el modelo matemático principal, sino las variables adicionales ("features")
+que enriquecen dicho modelo.
+
+> **Nota de estado.** Este documento es **aspiracional**. La fuente actual
+> (football-data.org, plan Free) **no provee** la mayoría de las variables
+> descritas aquí (estadísticas agregadas, bookings, alineaciones, datos de
+> jugadores/árbitros/entrenadores). Solo se almacenan marcadores, fixtures y
+> metadatos básicos. Ver `docs/roadmap.md` para el estado real de
+> implementación.
 
 ---
 
@@ -28,7 +40,7 @@ Las variables pueden dividirse en seis grupos.
 
 ## 1. Información del partido
 
-Disponible directamente desde API-Football.
+Disponible directamente desde football-data.org.
 
 * Fecha
 * Hora
@@ -219,7 +231,7 @@ Conviene almacenar la fecha del cambio para futuros análisis.
 
 # Información de jugadores
 
-API-Football permite acceder a una gran cantidad de información individual.
+football-data.org permite acceder a una gran cantidad de información individual.
 
 Para cada jugador puede almacenarse:
 
@@ -264,7 +276,7 @@ En el futuro podrían utilizarse para ajustar automáticamente los λ cuando exi
 
 # Árbitros
 
-API-Football proporciona información del árbitro en muchas competiciones.
+football-data.org proporciona información del árbitro en muchas competiciones.
 
 Registrar:
 
@@ -391,7 +403,7 @@ Además de las tablas principales:
 * TeamSeasonStatistics
 * TeamRecentForm
 * PlayerStatistics
-* MatchStatistics
+* MatchStatistics _(eliminado: el plan Free no provee stats)_
 * RefereeStatistics
 * CoachStatistics
 
@@ -455,7 +467,7 @@ No todas las variables tienen el mismo impacto.
 
 El sistema debe diseñarse como un **motor de características (Feature Engine)**.
 
-Todos los datos importados desde API-Football se transforman en variables estadísticas reutilizables. Posteriormente, cada modelo (goles, remates, córners, tarjetas, etc.) selecciona únicamente las variables que necesita.
+Todos los datos importados desde football-data.org se transforman en variables estadísticas reutilizables. Posteriormente, cada modelo (goles, remates, córners, tarjetas, etc.) selecciona únicamente las variables que necesita.
 
 Esta arquitectura evita duplicar cálculos, facilita la incorporación de nuevos mercados y permite mejorar continuamente el sistema sin modificar el núcleo de la plataforma.
 

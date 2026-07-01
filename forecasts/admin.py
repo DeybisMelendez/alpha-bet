@@ -2,15 +2,7 @@ from django.contrib import admin
 from django.utils import timezone
 from datetime import timedelta
 
-from forecasts.models import Forecast, MarketForecast
-
-
-class MarketForecastInline(admin.TabularInline):
-    model = MarketForecast
-    extra = 0
-    readonly_fields = ("selection", "lam", "prob", "label", "is_fallback")
-    can_delete = False
-    max_num = 0
+from forecasts.models import Forecast
 
 
 class ForecastDateFilter(admin.SimpleListFilter):
@@ -66,7 +58,6 @@ class ForecastAdmin(admin.ModelAdmin):
     readonly_fields = ("calculated_at", "form_home", "form_away")
     list_per_page = 50
     date_hierarchy = "calculated_at"
-    inlines = (MarketForecastInline,)
     fieldsets = (
         ("Partido", {
             "fields": ("match",),
@@ -125,6 +116,3 @@ class ForecastAdmin(admin.ModelAdmin):
     def fallback_display(self, obj):
         return "Sí" if obj.is_fallback else "No"
     fallback_display.short_description = "Fallback"
-
-
-admin.site.register(MarketForecast)

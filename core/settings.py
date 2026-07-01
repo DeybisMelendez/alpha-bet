@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     "matches",
     "elo",
     "forecasts",
-    "stats",
     "api_client",
 ]
 
@@ -131,24 +130,46 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
 
-# API-Football (api-sports.io v3) — única fuente de datos.
+# football-data.org (v4) — única fuente de datos.
 #
-# Competiciones de clubes, selecciones nacionales y amistosos. La
-# cobertura se descubre dinámicamente vía /leagues (ver comando
-# sync_competitions). Elo inicial: ELO_DEFAULT (1500) para equipos
-# nuevos en ligas sin LeagueStrength; se recalibra con
-# recompute_league_strength tras el backfill.
+# Competiciones de clubes y selecciones. La capa Free cubre solo 12
+# competiciones (FOOTBALL_DATA_FREE_COMPETITION_CODES); las demás
+# devuelven 403. La cobertura se descubre vía /v4/competitions y se
+# filtra a las del plan Free (ver comando sync_competitions). Elo
+# inicial: ELO_DEFAULT (1500) para equipos nuevos en ligas sin
+# LeagueStrength; se recalibra con recompute_league_strength tras el
+# backfill.
 #
-# Plan Free: 100 req/día, 10/min, solo temporadas 2022-2024, y date=
-# restringido a hoy ± 1 día (ventana rolling de 3 días).
-# Plan Pro: 7,500 req/día, 300/min, histórico profundo (~2008+) y
-# temporada actual desbloqueada vía league+season y date= sin ventana.
-# Los valores de rate-limit/budget están preparados para plan Pro.
+# Plan Free: 10 req/min, sin límite diario explícito, solo marcadores
+# /fixtures/schedules/league tables (sin bookings, alineaciones ni
+# estadísticas agregadas). Las temporadas históricas de las 12
+# competiciones Free son accesibles vía /v4/competitions/{id}/matches
+# ?season=YYYY. Los valores de rate-limit/budget son conservadores para
+# no quemar el techo por minuto.
 API_CACHE_TTL_MINUTES = 60
-API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
-API_FOOTBALL_BASE_URL = "https://v3.football.api-sports.io"
-API_FOOTBALL_RATE_LIMIT_SECONDS = 0.25
-API_FOOTBALL_DAILY_BUDGET = 7000
+FOOTBALL_DATA_TOKEN = os.environ.get("FOOTBALL_DATA_TOKEN", "")
+FOOTBALL_DATA_BASE_URL = "https://api.football-data.org"
+# 10 req/min → ~6s entre peticiones para no tocar el techo.
+FOOTBALL_DATA_RATE_LIMIT_SECONDS = 6.0
+# Tope diario de seguridad (el plan Free no publica un daily budget,
+# pero 10/min → 600/hora; 1000 deja margen prudente).
+FOOTBALL_DATA_DAILY_BUDGET = 1000
+# Códigos de competición accesibles en plan Free (ver coverage). El
+# comando sync_competitions filtra /v4/competitions por este set.
+FOOTBALL_DATA_FREE_COMPETITION_CODES = {
+    "CL",   # UEFA Champions League
+    "PL",   # Premier League
+    "ELC",  # Championship
+    "BL1",  # Bundesliga
+    "FL1",  # Ligue 1
+    "SA",   # Serie A
+    "PD",   # La Liga
+    "DED",  # Eredivisie
+    "PPL",  # Primeira Liga
+    "BSA",  # Campeonato Brasileiro Série A
+    "WC",   # FIFA World Cup
+    "EC",   # European Championship
+}
 
 # Elo inicial para nuevos equipos cuando no existe LeagueStrength.
 # Equipos nuevos en ligas sin historial reciben ELO_DEFAULT (1500);
@@ -210,9 +231,8 @@ DIXON_COLES_RHO = -0.13
 # se basa solo en la diferencia Elo multiplicada por este baseline.
 FORECAST_FALLBACK_BASELINE = 1.35
 # Umbral de antigüedad (meses) para considerar la forma reciente de un
-# equipo como "stale". Safety net alto (24m): con plan Pro no hay huecos
-# irrecoverables, pero protege ante resincronizaciones o equipos
-# inactivos largos.
+# equipo como "stale". Safety net (24m): protege ante resincronizaciones
+# o equipos inactivos largos.
 FORECAST_STALE_MONTHS = 24
 
 # Ventana de sincronización y pronóstico.

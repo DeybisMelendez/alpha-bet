@@ -10,17 +10,8 @@ from forecasts.engine import (
     value_bet_analysis,
 )
 from forecasts.forms import ForecastCalculateForm, ValueBetForm
-from forecasts.models import Forecast, MarketForecast
+from forecasts.models import Forecast
 from matches.models import Match
-from collections import OrderedDict
-
-
-def _secondary_markets(forecast):
-    """Agrupa los MarketForecast del pronóstico por mercado (label)."""
-    groups = OrderedDict()
-    for mf in forecast.markets.all().order_by("market", "selection"):
-        groups.setdefault(mf.get_market_display(), []).append(mf)
-    return groups
 
 
 def _build_matrix_context(xg_home, xg_away):
@@ -118,7 +109,6 @@ def forecast_detail(request, pk):
     )
 
     matrix_ctx = _build_matrix_context(forecast.xg_home, forecast.xg_away)
-    secondary_by_market = _secondary_markets(forecast)
 
     value_analysis = None
     if request.method == "POST":
@@ -152,7 +142,6 @@ def forecast_detail(request, pk):
         "forecast": forecast,
         "value_form": value_form,
         "value_analysis": value_analysis,
-        "secondary_by_market": secondary_by_market,
         **matrix_ctx,
     }
     return render(request, "forecasts/forecast_detail.html", context)

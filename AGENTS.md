@@ -1,7 +1,8 @@
 # Alpha Bet
 
-Personal football prediction platform using Django 6.0 + Elo system + API-Football
-(api-sports.io v3) as the single data source for clubs, national teams, and friendlies.
+Personal football prediction platform using Django 6.0 + Elo system +
+football-data.org (API v4, free tier) as the single data source for clubs
+and national teams.
 
 ## Dev Commands
 
@@ -20,11 +21,11 @@ python manage.py <command>
 
 | Comando | Descripción |
 | --- | --- |
-| `sync_competitions [--all]` | Descubre y registra competiciones desde `/leagues` (filtra femenil/juvenil/futsal/beach/esports). |
-| `sync_matches [--days-back N --days-ahead N] [--no-elo --no-forecasts --no-stats]` | Sincroniza partidos vía `date=hoy±N` (default 1) filtrando a las competiciones registradas. Procesa Elo y pronósticos. |
-| `sync_teams --league ID --season YYYY` | Sincroniza equipos de una liga/temporada (plan Pro para temporadas fuera de 2022-2024). |
-| `load_history --seed --from 2020 [--to YYYY]` | Crea la cola `BackfillJob(PENDING)` para liga×temporada del rango (no consume requests). |
-| `load_history [--max-requests N] [--leagues A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute] [--fetch-stats]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. |
+| `sync_competitions` | Descubre y registra las 12 competiciones del plan Free desde `/v4/competitions` (filtra por `FOOTBALL_DATA_FREE_COMPETITION_CODES`). |
+| `sync_matches [--days-back N --days-ahead N] [--no-elo --no-forecasts]` | Sincroniza partidos vía `/v4/matches?dateFrom=&dateTo=` (una petición por ventana, default hoy ± 1) filtrando a las competiciones registradas. Procesa Elo y pronósticos. |
+| `sync_teams --competition ID --season YYYY` | Sincroniza equipos de una competición/temporada (`/v4/competitions/{id}/teams`). |
+| `load_history --seed --from 2020 [--to YYYY]` | Crea la cola `BackfillJob(PENDING)` para competición×temporada del rango (no consume requests). |
+| `load_history [--max-requests N] [--competitions A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. |
 | `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge]` | Orquestador diario: ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos y purge de caché API. |
 | `update_elo [--limit N]` | Procesa partidos finalizados sin Elo aplicado. |
 | `reset_elo [--dry-run]` | Reinicia Elo y pronósticos para reconstruir desde cero. |
@@ -56,7 +57,7 @@ Para ejecución recurrente vía cron (ej. 8:00 AM):
 ## Environment
 
 - Env vars loaded from `.secret` via `dotenv` (not committed - see `.gitignore`)
-- `DJANGO_SECRET_KEY` and `API_FOOTBALL_KEY` required
+- `DJANGO_SECRET_KEY` and `FOOTBALL_DATA_TOKEN` required
 - `DJANGO_DEBUG=True` for development
 
 ## Tech Stack
@@ -71,7 +72,7 @@ Para ejecución recurrente vía cron (ej. 8:00 AM):
 - `docs/elo.md` - Elo rating algorithm with K-factor, goal difference multiplier
 - `docs/pronostico.md` - Poisson-based match prediction system
 - `docs/xG.md` - Expected goals (λ) estimation model
-- `docs/api_football.md` - api-football.com API integration (single source)
+- `docs/api_football.md` - football-data.org API integration (single source)
 - `docs/api.md` - Data layer architecture and persisted models
 - `docs/roadmap.md` - Centralized roadmap of unimplemented features
 
@@ -80,13 +81,19 @@ Para ejecución recurrente vía cron (ej. 8:00 AM):
 - Single Django project (`core/`) with default config
 - `core/settings.py` loads env from `.secret`
 - Language: Spanish (LANGUAGE_CODE=`es-ni`, TIME_ZONE=`America/Managua`)
-- API-Football (api-sports.io v3) is the **single data source** for clubs,
-  national teams, and friendlies. No `source` field; uniqueness is per `id_api`
+- football-data.org (API v4, plan Free) is the **single data source** for clubs
+  and national teams. No `source` field; uniqueness is per `id_api`
+- Plan Free covers only 12 competitions (`FOOTBALL_DATA_FREE_COMPETITION_CODES`)
+  at 10 req/min; no bookings/cards, line-ups or aggregated stats (shots,
+  possession, corners, fouls) — only scores, fixtures and league tables
 - `ELO_DEFAULT` (1500) is used for new teams without a `LeagueStrength`;
-  `recompute_league_strength` recalibrates after backfill;
-  `API_FOOTBALL_LEAGUES` has been removed
+  `recompute_league_strength` recalibrates after backfill
 - `BackfillJob` (app `api_client`) is a persistent queue powering
   `load_history`'s progressive, idempotent, resumable backfill
-- Plan Pro ($19/mo) required to backfill seasons outside 2022-2024 and the
-  current season; see `docs/api_football.md` §Procedimiento de carga for the
-  full load procedure
+- The `stats` app (`MatchStatistics`) and secondary markets
+  (`MarketForecast` SHOTS/CORNERS/CARDS/FOULS) were removed: the free tier
+  does not provide the underlying data. Only the main Poisson forecast
+  (`Forecast`: 1X2/OU/BTTS/CS/DNB/Double chance) is maintained
+- Historical seasons of the 12 Free competitions are accessible via
+  `/v4/competitions/{id}/matches?season=YYYY`; see `docs/api_football.md`
+  §Procedimiento de carga for the full load procedure

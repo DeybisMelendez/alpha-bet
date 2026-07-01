@@ -18,23 +18,27 @@ aquí con su prioridad orientativa.
 
 | Modelo | App | Descripción |
 | --- | --- | --- |
-| `Competition` | `teams` | Competiciones con `home_advantage` y `kind`. |
-| `Team` | `teams` | Equipos con `elo`, `matches_played`, `last_regressed_season`. |
+| `Competition` | `teams` | Competiciones con `home_advantage`, `kind` y `plan`. |
+| `Team` | `teams` | Equipos con `elo`, `matches_played`, `last_regressed_season`, `short_name`, `website`, `club_colors`. |
 | `TeamCompetition` | `teams` | Vínculo equipo ↔ competición ↔ temporada (la "temporada" es un `CharField`, no un modelo). |
-| `Match` | `matches` | Partidos con `status_short`, `is_neutral`, `venue`, `referee`, `importance`, `rest_days_*`, `*_elo_before/after`. |
-| `MatchStatistics` | `stats` | Stats por equipo y partido (remates, posesión, córners, faltas, tarjetas, pases). |
+| `Match` | `matches` | Partidos con `status_short`, `stage`, `group`, `matchday`, `is_neutral`, `venue`, `referee`, `importance`, `rest_days_*`, `*_elo_before/after`. |
 | `LeagueStrength` | `elo` | Elo promedio por `competition × season`. |
 | `EloLog` | `elo` | Bitácora de cambios Elo por equipo y partido (`elo_before/elo_after/delta`). |
-| `Forecast` | `forecasts` | Pronóstico principal: `xg_home/away`, mercados 1X2/OU/BTTS/DNB, `form_home/away`, `is_fallback`. |
-| `MarketForecast` | `forecasts` | Mercados secundarios (remates, córners, tarjetas, faltas) por `market/selection`. |
-| `ApiResponseCache` | `api_client` | Caché de respuestas de la API-Football. |
+| `Forecast` | `forecasts` | Pronóstico principal: `xg_home/away`, mercados 1X2/OU/BTTS/CS/DNB/Double chance, `form_home/away`, `is_fallback`. |
+| `ApiResponseCache` | `api_client` | Caché de respuestas de football-data.org. |
 | `BackfillJob` | `api_client` | Cola persistente del backfill histórico. |
+
+> **Eliminados.** `MatchStatistics` (app `stats`) y `MarketForecast`
+> (app `forecasts`) fueron removidos: el plan Free de football-data.org
+> no provee estadísticas agregadas (remates, posesión, córners, faltas,
+> tarjetas) ni bookings/cards. Solo se mantiene el pronóstico principal
+> de goles (`Forecast`).
 
 ## No implementados (Roadmap)
 
 Las siguientes entidades se mencionan en la documentación pero **no existen como
 modelos**. Los promedios/forma que describen se calculan hoy bajo demanda en
-`forecasts/engine.py` y `forecasts/secondary.py`.
+`forecasts/engine.py`.
 
 | Modelo propuesto | Doc que lo menciona | Comentario |
 | --- | --- | --- |
@@ -58,9 +62,10 @@ modelos**. Los promedios/forma que describen se calculan hoy bajo demanda en
 - Ambos marcan (BTTS / BTTS no).
 - Over/Under 0.5, 1.5, 2.5, 3.5, 4.5.
 - Marcador correcto más probable (`top_score`).
-- Mercados secundarios en `MarketForecast`: remates (`SHOTS`),
-  remates al arco (`SHOTS_ON_GOAL`), córners (`CORNERS`), tarjetas
-  (`CARDS`), faltas (`FOULS`).
+
+> **Eliminados.** Los mercados secundarios (`MarketForecast`:
+> SHOTS/SHOTS_ON_GOAL/CORNERS/CARDS/FOULS) fueron removidos: el plan
+> Free de football-data.org no provee los datos subyacentes.
 
 ## No implementados (Roadmap)
 
@@ -138,11 +143,9 @@ Mencionado en `docs/api.md` §Estadísticas derivadas y §Recomendaciones
 
 ## No implementado (Roadmap)
 
-- Promedios móviles **persistidos** (ataque, defensa, remates, córners, etc.).
-  Hoy se recalculan bajo demanda con ponderación temporal exponencial en
-  `forecasts/engine.py` (`attack_defense_ratings`) y `forecasts/secondary.py`.
-- Tabla de **eficiencia** (conversión de remates a gol, precisión de disparo,
-  eficacia defensiva, generación de córners por remate).
+- Promedios móviles **persistidos** (ataque, defensa). Hoy se recalculan
+  bajo demanda con ponderación temporal exponencial en
+  `forecasts/engine.py` (`attack_defense_ratings`).
 
 La decisión de diseño actual es no persistir promedios porque (a) evita
 duplicar estado y (b) el dataset es pequeño. Se evaluará persistirlos si el
@@ -157,7 +160,7 @@ coste de cómputo de las ventanas on-the-fly deja de ser despreciable.
 | Paso | Estado |
 | --- | --- |
 | 1. Actualizar Elo | Implementado (`elo/engine.py`, `EloLog`). |
-| 2. Guardar estadísticas ofensivas/defensivas | Implementado (`MatchStatistics`). |
+| 2. Guardar estadísticas ofensivas/defensivas | No disponible (plan Free no provee stats; `MatchStatistics` fue eliminado). |
 | 3. Actualizar forma reciente | On-the-fly (`recent_form_factor`), no persistido. |
 | 4. Estadísticas de jugadores | No implementado. |
 | 5. Estadísticas del árbitro | No implementado. |
@@ -174,7 +177,7 @@ Mencionado en `docs/pronostico.md` §Posibles mejoras futuras y `docs/xG.md`
 
 ## No implementadas (Roadmap)
 
-- **xG / xGA** oficiales (API-Football no las expone en plan Free; se usarían
+- **xG / xGA** oficiales (football-data.org no las expone en plan Free; se usarían
   las internas `xg_home/away` calculadas por el motor).
 - **Modelos bayesianos** para λ.
 - **Machine Learning** para la estimación de λ.

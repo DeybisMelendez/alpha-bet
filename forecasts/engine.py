@@ -842,18 +842,6 @@ def generate_forecast(match, cache=None):
         },
     )
 
-    # Mercados secundarios (remates, córners, tarjetas, faltas).
-    # Se calculan solo si hay estadísticas históricas (Fase 5).
-    try:
-        from forecasts.secondary import generate_secondary_markets
-        generate_secondary_markets(forecast, match, cache=cache)
-    except Exception:
-        import logging
-        logging.getLogger("alpha").exception(
-            "Error generando mercados secundarios para partido %s",
-            match.id_api,
-        )
-
     return forecast
 
 

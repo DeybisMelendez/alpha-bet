@@ -6,13 +6,13 @@ Este documento describe la arquitectura completa de la capa de datos de Alpha Be
 
 Su objetivo es definir cómo se obtiene, procesa y almacena toda la información utilizada por el sistema de pronósticos.
 
-API-Football constituye la fuente principal de datos, mientras que Alpha Bet es responsable de transformar dichos datos en información estadística reutilizable.
+football-data.org constituye la fuente principal de datos, mientras que Alpha Bet es responsable de transformar dichos datos en información estadística reutilizable.
 
 ---
 
 # Filosofía
 
-API-Football proporciona únicamente datos brutos.
+football-data.org proporciona únicamente datos brutos.
 
 Toda la inteligencia debe construirse dentro de Alpha Bet.
 
@@ -21,7 +21,7 @@ Los pronósticos nunca deben depender de consultas en tiempo real a la API.
 El flujo correcto es:
 
 ```text
-API-Football
+football-data.org
         │
         ▼
 Importador
@@ -128,66 +128,13 @@ Nunca eliminar partidos históricos.
 
 # Estadísticas del partido
 
-Una vez finalizado el encuentro deben descargarse todas las estadísticas disponibles.
-
-## Goles
-
-* Goles
-* Goles primer tiempo
-* Goles segundo tiempo
-
----
-
-## Remates
-
-* Totales
-* Al arco
-* Fuera
-* Bloqueados
-* Dentro del área
-* Fuera del área
-
----
-
-## Posesión
-
-* Porcentaje de posesión
-
----
-
-## Ataque
-
-* Corners
-* Offsides
-
----
-
-## Disciplina
-
-* Faltas
-* Amarillas
-* Rojas
-
----
-
-## Portería
-
-* Atajadas
-
-Aunque inicialmente algunas variables no formen parte del modelo, deben almacenarse para futuras investigaciones.
-
----
-
-## Pases
-
-* Pases totales
-* Pases completados
-
-> **Implementación.** Modelo `stats.models.MatchStatistics` (un
-> registro por equipo y partido, clave `unique_together = (match,
-> team)`). Cubre goles por tiempo, remates (incluyendo dentro/fuera del
-> área), posesión, córners, offsides, faltas, tarjetas, atajadas y
-> pases.
+> **No disponible.** El plan Free de football-data.org no provee
+> estadísticas agregadas (remates, posesión, córners, faltas, tarjetas,
+> atajadas, pases) ni bookings/cards. El modelo `MatchStatistics` (app
+> `stats`) y los mercados secundarios (`MarketForecast`
+> SHOTS/CORNERS/CARDS/FOULS) fueron **eliminados**. Solo se almacenan
+> los marcadores (`score.fullTime`/`halfTime`), suficientes para Elo y
+> el pronóstico principal (Poisson sobre goles). Ver `docs/roadmap.md`.
 
 ---
 
@@ -219,9 +166,6 @@ Cada partido terminado activa automáticamente el siguiente proceso.
 Guardar partido
         │
         ▼
-Guardar estadísticas
-        │
-        ▼
 Actualizar Elo
         │
         ▼
@@ -229,9 +173,6 @@ Actualizar estadísticas históricas
         │
         ▼
 Actualizar forma reciente
-        │
-        ▼
-Actualizar estadísticas derivadas
         │
         ▼
 Recalcular predicciones futuras
@@ -247,9 +188,9 @@ Después de cada partido se actualizan automáticamente los promedios histórico
 
 > **Implementación.** Los promedios no se persisten en tablas
 > dedicadas: se recalculan bajo demanda con ponderación temporal
-> exponencial en `forecasts/engine.py` (`attack_defense_ratings`) y
-> `forecasts/secondary.py`. Ver `docs/roadmap.md` §Estadísticas
-> derivadas y promedios móviles para el estado de la persistencia.
+> exponencial en `forecasts/engine.py` (`attack_defense_ratings`). Ver
+> `docs/roadmap.md` §Estadísticas derivadas y promedios móviles para
+> el estado de la persistencia.
 
 ## Ofensivas
 
@@ -349,35 +290,11 @@ Toda la información almacenada debe permitir desarrollar modelos para:
 * Ambos marcan.
 * Marcador correcto.
 
----
-
-## Modelo de remates
-
-* Remates del equipo.
-* Remates del partido.
-
----
-
-## Modelo de remates al arco
-
-* Equipo.
-* Partido.
-
----
-
-## Modelo de corners
-
-* Equipo.
-* Partido.
-
----
-
-## Modelo disciplinario
-
-* Tarjetas.
-* Faltas.
-
-Todos los modelos reutilizan la misma información histórica.
+> **Implementación.** Solo el modelo principal de goles está mantenido
+> (`Forecast`: 1X2/OU/BTTS/CS/DNB/Double chance). Los modelos de
+> remates, córners y disciplinario (tarjetas/faltas) fueron eliminados:
+> el plan Free de football-data.org no provee los datos subyacentes.
+> Ver `docs/roadmap.md`.
 
 ---
 
@@ -391,10 +308,10 @@ Competition ──┐
               │                         │
               │                  ┌──────┴──────┐
               │                  ▼             ▼
-              │              Match ──── MatchStatistics
+              │              Match
               │                  │
               │                  ├── EloLog
-              │                  └── Forecast ── MarketForecast
+              │                  └── Forecast
               ▼
          LeagueStrength
               │
@@ -420,8 +337,7 @@ La API solo debe utilizarse para:
 
 * descubrir competiciones;
 * importar temporadas;
-* actualizar partidos diarios;
-* descargar estadísticas oficiales.
+* actualizar partidos diarios.
 
 Todo cálculo estadístico debe realizarse localmente.
 
@@ -447,7 +363,7 @@ Todo cálculo estadístico debe realizarse localmente.
 La plataforma queda dividida en cuatro capas independientes:
 
 ```text
-API-Football
+football-data.org
         │
         ▼
 Capa de Importación

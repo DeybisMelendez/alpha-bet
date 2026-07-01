@@ -1,21 +1,21 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from api_client.client import ApiFootballClient
+from api_client.client import FootballDataClient
 from api_client.sync import ensure_team
 from teams.models import Competition, TeamCompetition
 
 
 class Command(BaseCommand):
     help = (
-        "Sincroniza equipos de una liga/temporada desde API-Football. "
-        "Requiere plan Pro para temporadas fuera de 2022-2024."
+        "Sincroniza equipos de una competición/temporada desde "
+        "football-data.org (/v4/competitions/{id}/teams?season=YYYY)."
     )
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--league",
+            "--competition",
             required=True,
-            help="League ID de API-Football (ej. 39 para Premier League).",
+            help="ID de football-data.org de la competición (ej. 2021 PL).",
         )
         parser.add_argument(
             "--season",
@@ -24,27 +24,29 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        league_id = int(options["league"])
+        competition_id = int(options["competition"])
         season = options["season"]
 
         try:
-            competition = Competition.objects.get(id_api=league_id)
+            competition = Competition.objects.get(id_api=competition_id)
         except Competition.DoesNotExist:
             raise CommandError(
-                f"Competición {league_id} no existe. "
+                f"Competición {competition_id} no existe. "
                 f"Ejecuta sync_competitions primero."
             )
 
-        client = ApiFootballClient()
+        client = FootballDataClient()
         try:
-            teams_data = client.get_teams(league=league_id, season=season)
+            teams_data = client.get_competition_teams(
+                competition_id, season=season
+            )
         except Exception as exc:
             raise CommandError(f"Error obteniendo equipos: {exc}")
 
         if not teams_data:
             self.stdout.write(self.style.WARNING(
-                f"No hay equipos para liga {league_id} temporada {season}. "
-                f"(¿Plan Free y temporada fuera de 2022-2024?)"
+                f"No hay equipos para competición {competition_id} "
+                f"temporada {season}."
             ))
             return
 

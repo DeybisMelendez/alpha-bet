@@ -22,17 +22,22 @@ class Match(models.Model):
     season = models.CharField(max_length=20, blank=True, default="")
     round = models.CharField(
         max_length=50, blank=True, default="",
-        help_text="Ronda/jornada de API-Football (league.round).",
+        help_text="Ronda/jornada legible (derivada de stage/group/matchday).",
     )
+    # football-data.org descompone la ronda en stage (GROUP_STAGE, FINAL,
+    # ...) + group ("Group A") + matchday (int, jornada de liga).
+    stage = models.CharField(max_length=50, blank=True, default="")
+    group = models.CharField(max_length=50, blank=True, default="")
+    matchday = models.PositiveSmallIntegerField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.SCHEDULED
     )
-    # Status original de API-Football (FT, AET, PEN, NS, etc.). Se conserva
+    # Status corto derivado de score.duration (FT, AET, PEN). Se conserva
     # aparte del status normalizado para que el motor de Elo pueda distinguir
     # partidos decididos por penales (PEN) y tratarlos como empate.
     status_short = models.CharField(
         max_length=10, blank=True, default="",
-        help_text="Status corto de API-Football (FT, AET, PEN, ...).",
+        help_text="Status corto derivado de score.duration (FT, AET, PEN).",
     )
     utc_date = models.DateTimeField()
 

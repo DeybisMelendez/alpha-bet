@@ -5,13 +5,12 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api_client.client import ApiFootballClient
+from api_client.client import FootballDataClient
 from api_client.models import BackfillJob
 from api_client.sync import (
     ensure_competition,
     ensure_team,
     save_match,
-    save_match_statistics,
 )
 from elo.engine import (
     apply_elo_update,
@@ -27,11 +26,12 @@ logger = logging.getLogger("alpha")
 
 class Command(BaseCommand):
     help = (
-        "Backfill progresivo del historial de partidos (liga × temporada) vía "
-        "API-Football, respetando el presupuesto diario de la API. Usa una "
-        "cola persistente (BackfillJob) para reanudar tras interrupciones. "
-        "Idempotente: save_match es update_or_create por id_api. Requiere plan "
-        "Pro para temporadas fuera de 2022-2024."
+        "Backfill progresivo del historial de partidos (competición × "
+        "temporada) vía football-data.org, respetando el presupuesto diario "
+        "de la API. Usa una cola persistente (BackfillJob) para reanudar tras "
+        "interrupciones. Idempotente: save_match es update_or_create por "
+        "id_api. El plan Free permite temporadas históricas de las 12 "
+        "competiciones accesibles."
     )
 
     def add_arguments(self, parser):
@@ -41,7 +41,7 @@ class Command(BaseCommand):
             help=(
                 "Crea los BackfillJob PENDING para todas las competiciones "
                 "registradas × temporadas del rango (--from/--to). No consume "
-                "peticiones de fixtures. Idempotente."
+                "peticiones. Idempotente."
             ),
         )
         parser.add_argument(
@@ -59,10 +59,10 @@ class Command(BaseCommand):
             help="Año final del rango de backfill (default: año actual).",
         )
         parser.add_argument(
-            "--leagues",
+            "--competitions",
             help=(
-                "Lista de league IDs separados por coma. Si se omite, usa "
-                "todas las competiciones registradas en la BD."
+                "Lista de IDs de football-data.org separados por coma. Si se "
+                "omite, usa todas las competiciones registradas en la BD."
             ),
         )
         parser.add_argument(
@@ -75,17 +75,17 @@ class Command(BaseCommand):
         parser.add_argument(
             "--max-requests",
             type=int,
-            default=settings.API_FOOTBALL_DAILY_BUDGET,
+            default=settings.FOOTBALL_DATA_DAILY_BUDGET,
             help=(
                 "Presupuesto diario de peticiones (default: "
-                f"{settings.API_FOOTBALL_DAILY_BUDGET})."
+                f"{settings.FOOTBALL_DATA_DAILY_BUDGET})."
             ),
         )
         parser.add_argument(
             "--rate-limit-seconds",
             type=float,
-            default=settings.API_FOOTBALL_RATE_LIMIT_SECONDS,
-            help="Pausa entre peticiones (default plan Pro: 0.25s).",
+            default=settings.FOOTBALL_DATA_RATE_LIMIT_SECONDS,
+            help="Pausa entre peticiones (default plan Free: 6s).",
         )
         parser.add_argument(
             "--reset",
@@ -107,15 +107,6 @@ class Command(BaseCommand):
             action="store_true",
             help="No recalibrar LeagueStrength tras procesar Elo.",
         )
-        parser.add_argument(
-            "--fetch-stats",
-            action="store_true",
-            help=(
-                "Descargar también las estadísticas por partido "
-                "(remates, córners, ...). Costoso: una petición extra "
-                "por partido finalizado. Por defecto omitido en backfill."
-            ),
-        )
 
     def handle(self, *args, **options):
         if options["reset"]:
@@ -125,7 +116,7 @@ class Command(BaseCommand):
             self._seed_jobs(
                 from_year=options["from_year"],
                 to_year=options["to_year"],
-                leagues_arg=options.get("leagues"),
+                competitions_arg=options.get("competitions"),
                 seasons_arg=options.get("seasons"),
             )
             return
@@ -142,9 +133,9 @@ class Command(BaseCommand):
             return [x.strip() for x in seasons_arg.split(",") if x.strip()]
         return [str(y) for y in range(from_year, to_year + 1)]
 
-    def _resolve_competitions(self, leagues_arg):
-        if leagues_arg:
-            ids = [int(x.strip()) for x in leagues_arg.split(",")]
+    def _resolve_competitions(self, competitions_arg):
+        if competitions_arg:
+            ids = [int(x.strip()) for x in competitions_arg.split(",")]
             qs = Competition.objects.filter(id_api__in=ids)
             missing = set(ids) - set(qs.values_list("id_api", flat=True))
             if missing:
@@ -154,9 +145,9 @@ class Command(BaseCommand):
             return list(qs)
         return list(Competition.objects.all().order_by("id_api"))
 
-    def _seed_jobs(self, from_year, to_year, leagues_arg, seasons_arg):
+    def _seed_jobs(self, from_year, to_year, competitions_arg, seasons_arg):
         seasons = self._resolve_seasons(from_year, to_year, seasons_arg)
-        competitions = self._resolve_competitions(leagues_arg)
+        competitions = self._resolve_competitions(competitions_arg)
         if not competitions:
             self.stdout.write(self.style.WARNING(
                 "No hay competiciones registradas. Ejecuta sync_competitions."
@@ -199,28 +190,27 @@ class Command(BaseCommand):
         ))
 
     def _run_backfill(self, options):
-        client = ApiFootballClient()
+        client = FootballDataClient()
         max_requests = options["max_requests"]
         rate_limit = options["rate_limit_seconds"]
         no_elo = options["no_elo"]
 
-        # Filtrar cola por --leagues/--seasons si vienen.
-        leagues_arg = options.get("leagues")
+        competitions_arg = options.get("competitions")
         seasons_arg = options.get("seasons")
         seasons_filter = None
         if seasons_arg:
             seasons_filter = self._resolve_seasons(
                 options["from_year"], options["to_year"], seasons_arg
             )
-        league_ids_filter = None
-        if leagues_arg:
-            league_ids_filter = [int(x.strip()) for x in leagues_arg.split(",")]
+        comp_ids_filter = None
+        if competitions_arg:
+            comp_ids_filter = [int(x.strip()) for x in competitions_arg.split(",")]
 
         pending = BackfillJob.objects.filter(
             status=BackfillJob.Status.PENDING
         ).select_related("competition").order_by("competition__id_api", "season")
-        if league_ids_filter:
-            pending = pending.filter(competition__id_api__in=league_ids_filter)
+        if comp_ids_filter:
+            pending = pending.filter(competition__id_api__in=comp_ids_filter)
         if seasons_filter:
             pending = pending.filter(season__in=seasons_filter)
 
@@ -256,10 +246,10 @@ class Command(BaseCommand):
                 ))
                 break
 
-            # Cortar si la API reporta poco remaining (safety runtime).
+            # Cortar si la API reporta poco remaining (plan Free: 10/min).
             if (
                 client.last_rate_remaining is not None
-                and client.last_rate_remaining < 50
+                and client.last_rate_remaining < 2
             ):
                 self.stdout.write(self.style.WARNING(
                     f"\nRate-limit remaining bajo "
@@ -267,16 +257,14 @@ class Command(BaseCommand):
                 ))
                 break
 
-            self._process_job(
-                job, client, rate_limit, stats, no_elo, options["fetch_stats"],
-            )
+            self._process_job(job, client, rate_limit, stats, no_elo)
             request_count += 1
             time.sleep(rate_limit)
 
         self._print_summary(stats, request_count)
         self._post_load(options)
 
-    def _process_job(self, job, client, rate_limit, stats, no_elo, fetch_stats):
+    def _process_job(self, job, client, rate_limit, stats, no_elo):
         comp = job.competition
         season = job.season
         name = comp.name or str(comp.id_api)
@@ -288,7 +276,9 @@ class Command(BaseCommand):
         self.stdout.write(f"  [{name}] {season}...")
 
         try:
-            fixtures = client.get_fixtures(league=comp.id_api, season=season)
+            matches = client.get_competition_matches(
+                comp.id_api, season=season
+            )
         except Exception as exc:
             stats["api_errors"] += 1
             job.status = BackfillJob.Status.ERROR
@@ -296,11 +286,14 @@ class Command(BaseCommand):
             job.save(update_fields=["status", "error_msg"])
             self.stderr.write(self.style.ERROR(f"    Error API: {exc}"))
             if "429" in str(exc):
-                self.stdout.write("    Rate limit, esperando 60s...")
-                time.sleep(60)
+                reset = 60
+                self.stdout.write(
+                    f"    Rate limit, esperando {reset}s..."
+                )
+                time.sleep(reset)
                 try:
-                    fixtures = client.get_fixtures(
-                        league=comp.id_api, season=season
+                    matches = client.get_competition_matches(
+                        comp.id_api, season=season
                     )
                 except Exception as exc2:
                     stats["api_errors"] += 1
@@ -313,33 +306,29 @@ class Command(BaseCommand):
             else:
                 return
 
-        if not fixtures:
+        if not matches:
             self.stdout.write("    Sin partidos.")
             job.status = BackfillJob.Status.EMPTY
             job.save(update_fields=["status"])
             stats["jobs_empty"] += 1
             return
 
-        self.stdout.write(f"    {len(fixtures)} partidos obtenidos.")
-        for fx in fixtures:
+        self.stdout.write(f"    {len(matches)} partidos obtenidos.")
+        for m in matches:
             try:
-                self._save_fixture(
-                    fx, comp, season, stats, client, fetch_stats
-                )
+                self._save_match(m, comp, season, stats)
             except Exception as exc:
                 stats["save_errors"] += 1
                 self.stderr.write(self.style.ERROR(
-                    f"    Error guardando fixture "
-                    f"{fx.get('fixture', {}).get('id')}: {exc}"
+                    f"    Error guardando partido {m.get('id')}: {exc}"
                 ))
 
         job.status = BackfillJob.Status.DONE
-        job.fixtures_count = len(fixtures)
+        job.fixtures_count = len(matches)
         job.save(update_fields=["status", "fixtures_count"])
         stats["jobs_done"] += 1
 
-        # Procesar Elo cronológicamente por liga×temporada (inmediato
-        # tras cargar, para no requerir un pase global separado).
+        # Procesar Elo cronológicamente por competición×temporada.
         if no_elo:
             return
         pending = Match.objects.filter(
@@ -357,16 +346,14 @@ class Command(BaseCommand):
                     "Error aplicando Elo al partido %s", match.id_api
                 )
 
-    def _save_fixture(self, fx, competition, season, stats, client, fetch_stats):
-        league = fx.get("league", {}) or {}
-        league_data = {"league": league, "country": {}}
-        comp, _ = ensure_competition(league_data, season)
+    def _save_match(self, m, competition, season, stats):
+        comp_block = m.get("competition", {}) or {}
+        comp, _ = ensure_competition(comp_block, season)
         if comp is None:
-            return
+            comp = competition
 
-        teams = fx.get("teams", {}) or {}
-        home_data = teams.get("home", {}) or {}
-        away_data = teams.get("away", {}) or {}
+        home_data = m.get("homeTeam", {}) or {}
+        away_data = m.get("awayTeam", {}) or {}
 
         home, home_created = ensure_team(
             home_data, comp, season_str=season
@@ -387,7 +374,7 @@ class Command(BaseCommand):
             stats["teams_existing"] += 1
 
         match, created = save_match(
-            fx, comp, home, away, season_str=season
+            m, comp, home, away, season_str=season
         )
         if match is None:
             return
@@ -395,21 +382,6 @@ class Command(BaseCommand):
             stats["matches_new"] += 1
         else:
             stats["matches_updated"] += 1
-
-        # Estadísticas opcionales (costosas); docs/api.md §Estadísticas.
-        # Solo cuando el partido ya finaliza y el usuario lo solicita.
-        if fetch_stats and match.is_finished:
-            try:
-                stats.setdefault("stats_saved", 0)
-                stats["stats_saved"] += save_match_statistics(
-                    match, client, fixture_data=fx
-                )
-            except Exception as exc:
-                stats.setdefault("stats_errors", 0)
-                stats["stats_errors"] += 1
-                logger.warning(
-                    "Error guardando stats de %s: %s", match.id_api, exc
-                )
 
     def _print_summary(self, stats, request_count):
         self.stdout.write(self.style.SUCCESS(
@@ -421,8 +393,6 @@ class Command(BaseCommand):
             f"{stats['matches_updated']} actualizados\n"
             f"  Equipos: {stats['teams_new']} nuevos, "
             f"{stats['teams_existing']} existentes\n"
-            f"  Stats: {stats.get('stats_saved', 0)} guardadas "
-            f"({stats.get('stats_errors', 0)} errores)\n"
             f"  Errores API: {stats['api_errors']}, "
             f"Errores guardado: {stats['save_errors']}"
         ))

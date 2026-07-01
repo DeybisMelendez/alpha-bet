@@ -23,7 +23,7 @@ El sistema busca producir probabilidades calibradas y consistentes, evitando dep
 El flujo del sistema es el siguiente:
 
 ```text
-API-Football
+football-data.org
         │
         ▼
 Importación de partidos
@@ -306,10 +306,10 @@ Todos los mercados deben derivarse de la misma matriz de probabilidades para gar
 
 > **Implementación.** Estos mercados se materializan en el modelo
 > `forecasts.models.Forecast` (campos `prob_*` y `top_score`). Los
-> mercados secundarios (remates, córners, tarjetas, faltas) viven en
-> `MarketForecast` (ver `docs/pronosticos_extra.md` §Mercados). El
-> Asian Handicap no está implementado; ver `docs/roadmap.md` §Mercados
-> de apuestas.
+> mercados secundarios (remates, córners, tarjetas, faltas) fueron
+> eliminados: el plan Free de football-data.org no provee los datos
+> subyacentes (ver `docs/roadmap.md` §Mercados de apuestas). El Asian
+> Handicap no está implementado.
 
 ---
 

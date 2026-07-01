@@ -15,7 +15,7 @@ class ApiResponseCacheAdmin(admin.ModelAdmin):
 
     def endpoint(self, obj):
         url = obj.url
-        prefix = "https://v3.football.api-sports.io"
+        prefix = "https://api.football-data.org"
         if url.startswith(prefix):
             return url[len(prefix):]
         return url

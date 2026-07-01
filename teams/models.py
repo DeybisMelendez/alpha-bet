@@ -21,10 +21,13 @@ class Competition(models.Model):
         max_length=20,
         blank=True,
         default="",
-        help_text="Tipo de competición según API-Football (league/cup).",
+        help_text="Tipo de competición (league/cup).",
     )
     logo = models.URLField(blank=True, default="")
     current_season = models.CharField(max_length=20, blank=True, default="")
+    # Plan de football-data.org (TIER_ONE, TIER_TWO, ...). Indica el
+    # nivel de la competición en la fuente de datos.
+    plan = models.CharField(max_length=20, blank=True, default="")
     # Clasificación del nivel competitivo. Implica K-factor (docs/elo.md:
     # Mundial 30, Eliminatorias 25, Liga/Copa nacional 20, Amistoso 15)
     # y localía por competición (nacional +70-90, selecciones +50-80,
@@ -55,6 +58,10 @@ class Team(models.Model):
     founded = models.PositiveIntegerField(null=True, blank=True)
     venue = models.CharField(max_length=200, blank=True, default="")
     country = models.CharField(max_length=100, blank=True, default="")
+    # Metadata adicional de football-data.org (/v4/teams/{id}).
+    short_name = models.CharField(max_length=50, blank=True, default="")
+    website = models.URLField(blank=True, default="")
+    club_colors = models.CharField(max_length=50, blank=True, default="")
     elo = models.FloatField(default=1500.0)
     matches_played = models.PositiveIntegerField(default=0)
     # Temporada hasta la cual se ha aplicado la regresión Elo docs/elo.md

@@ -106,35 +106,6 @@
     </div>
 </section>
 
-{% if secondary_by_market %}
-<section class="mt-2">
-    <h2>Mercados secundarios</h2>
-    <p class="text-muted small">
-        Estimaciones (λ y probabilidad) derivadas de estadísticas históricas
-        de remates, córners, tarjetas y faltas (docs/pronosticos_extra.md).
-    </p>
-    <div class="grid grid-2">
-        {% for mlabel, mrows in secondary_by_market.items %}
-        <article>
-            <h3>{{ mlabel }}</h3>
-            <table class="compact">
-                <thead><tr><th>Selección</th><th class="text-center">λ</th><th class="text-center">Prob.</th></tr></thead>
-                <tbody>
-                    {% for mr in mrows %}
-                    <tr>
-                        <td>{{ mr.label }}</td>
-                        <td class="text-center monospace">{{ mr.lam|floatformat:2 }}</td>
-                        <td class="text-center monospace">{% widthratio mr.prob 1 100 %}%</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </article>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
-
 <section class="mt-2">
     <h2>Value Bet</h2>
     <p class="text-muted small">
