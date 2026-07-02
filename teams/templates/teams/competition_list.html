@@ -8,9 +8,11 @@
 <table class="compact">
     <thead>
         <tr>
+            <th></th>
             <th>Código</th>
             <th>Nombre</th>
             <th>Área</th>
+            <th>Tipo</th>
             <th>Temporada</th>
             <th class="text-center">Equipos</th>
         </tr>
@@ -18,18 +20,24 @@
     <tbody>
         {% for comp in competitions %}
         <tr>
+            <td>
+                {% if comp.logo %}
+                <img src="{{ comp.logo }}" alt="" class="comp-logo" loading="lazy">
+                {% endif %}
+            </td>
             <td class="monospace">
                 <a href="{% url 'competitions:detail' comp.code %}">{{ comp.code }}</a>
             </td>
             <td>
                 <a href="{% url 'competitions:detail' comp.code %}">{{ comp.name }}</a>
             </td>
-            <td class="text-muted small">{{ comp.area_name }}</td>
+            <td class="text-muted small">{{ comp.area_name|default:"-" }}</td>
+            <td><span class="badge">{{ comp.league_type|default:comp.kind|title }}</span></td>
             <td class="small">{{ comp.current_season|default:"-" }}</td>
             <td class="text-center monospace">{{ comp.team_links.count }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="text-muted">Sin competiciones sincronizadas.</td></tr>
+        <tr><td colspan="7" class="text-muted">Sin competiciones sincronizadas.</td></tr>
         {% endfor %}
     </tbody>
 </table>

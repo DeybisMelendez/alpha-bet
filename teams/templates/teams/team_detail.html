@@ -35,8 +35,10 @@
     <h2>Información</h2>
     <table class="compact">
         <tbody>
+            <tr><th>País</th><td>{{ team.country|default:"-" }}</td></tr>
             <tr><th>Fundado</th><td>{{ team.founded|default:"-" }}</td></tr>
             <tr><th>Estadio</th><td>{{ team.venue|default:"-" }}</td></tr>
+            <tr><th>Colores</th><td>{% if team.club_colors %}<span class="club-colors">{{ team.club_colors }}</span>{% else %}-{% endif %}</td></tr>
             <tr><th>Sitio web</th><td>
                 {% if team.website %}<a href="{{ team.website }}" target="_blank" rel="noopener">{{ team.website }}</a>{% else %}-{% endif %}
             </td></tr>

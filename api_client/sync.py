@@ -72,13 +72,23 @@ def ensure_competition(comp_data, season_str=""):
     defaults = {
         "code": code,
         "name": comp_data.get("name", ""),
-        "area_name": area_name,
-        "area_code": str(area.get("id", "")) if isinstance(area, dict) else "",
-        "plan": comp_data.get("plan", ""),
     }
-    # Solo sobrescribe current_season si viene explicitamente en el objeto
-    # de /v4/competitions (con currentSeason). El bloque embebido en un
-    # match no lo trae.
+
+    # Mapeo de campos siempre disponibles (emblem, type).
+    if "emblem" in comp_data:
+        defaults["logo"] = comp_data.get("emblem", "")
+    if "type" in comp_data:
+        defaults["league_type"] = comp_data.get("type", "")
+
+    # area, plan y currentSeason solo están disponibles en la respuesta
+    # de /v4/competitions, NO en el bloque competition embebido en un
+    # match. Solo actualizar si el source data los contiene para evitar
+    # pisar con vacío desde sync_matches/load_history.
+    if "area" in comp_data and isinstance(comp_data.get("area"), dict):
+        defaults["area_name"] = comp_data["area"].get("name", "")
+        defaults["area_code"] = str(comp_data["area"].get("id", ""))
+    if "plan" in comp_data:
+        defaults["plan"] = comp_data.get("plan") or ""
     current = comp_data.get("currentSeason")
     if isinstance(current, dict) and current.get("startDate"):
         defaults["current_season"] = str(current["startDate"][:4])
@@ -264,6 +274,12 @@ def save_match(match_data, competition, home, away, season_str=""):
     status_short = _map_duration(duration)
 
     venue_name = match_data.get("venue", "") or ""
+    referees_list = match_data.get("referees", []) or []
+    referee_name = ""
+    if isinstance(referees_list, list) and referees_list:
+        first = referees_list[0]
+        if isinstance(first, dict):
+            referee_name = first.get("name", "") or ""
     is_neutral = _neutral_default(competition)
     importance = _importance_from_competition(competition)
     round_label = _round_label(match_data)
@@ -283,6 +299,7 @@ def save_match(match_data, competition, home, away, season_str=""):
         "home_goals": home_goals,
         "away_goals": away_goals,
         "venue": venue_name,
+        "referee": referee_name,
         "is_neutral": is_neutral,
         "importance": importance,
     }

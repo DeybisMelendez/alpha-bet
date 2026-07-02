@@ -50,7 +50,21 @@
     </section>
 
     <aside>
-        <h2>Elo</h2>
+        <h2>Información</h2>
+        <table class="compact">
+            <tbody>
+                {% if match.referee %}
+                <tr><th>Árbitro</th><td>{{ match.referee }}</td></tr>
+                {% endif %}
+                {% if match.venue %}
+                <tr><th>Estadio</th><td>{{ match.venue }}</td></tr>
+                {% endif %}
+                {% if match.is_neutral %}
+                <tr><th>Sede</th><td>Neutral</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <h2 class="mt-1">Elo</h2>
         <table class="compact">
             <thead>
                 <tr><th>Equipo</th><th class="text-center">Antes</th><th class="text-center">Después</th></tr>

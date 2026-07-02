@@ -2,9 +2,16 @@
 {% block title %}{{ competition.name }} · Alpha Bet{% endblock %}
 
 {% block content %}
-<h1>{{ competition.name }}</h1>
+<h1>
+    {% if competition.logo %}
+    <img src="{{ competition.logo }}" alt="" class="comp-logo" loading="lazy">
+    {% endif %}
+    {{ competition.name }}
+</h1>
 <p class="text-muted">
-    {{ competition.area_name }} · Temporada {{ season|default:"-" }}
+    {{ competition.area_name|default:"-" }}
+    · <span class="badge">{{ competition.league_type|default:competition.kind|title }}</span>
+    · Temporada {{ season|default:"-" }}
 </p>
 
 <section class="mt-1">
@@ -23,6 +30,9 @@
             <tr>
                 <td class="rank-num monospace">{{ forloop.counter }}</td>
                 <td>
+                    {% if team.crest_url %}
+                    <img src="{{ team.crest_url }}" alt="" class="team-crest" loading="lazy">
+                    {% endif %}
                     <a href="{% url 'teams:detail' team.pk %}">{{ team.name }}</a>
                     {% if team.tla %}<span class="team-tla">{{ team.tla }}</span>{% endif %}
                 </td>
