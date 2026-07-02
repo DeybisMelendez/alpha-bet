@@ -7,9 +7,9 @@ from forecasts.engine import (
     expected_goals_from_ratings,
     market_probabilities,
     probabilities_1x2,
-    value_bet_analysis,
+    recent_finished_matches,
 )
-from forecasts.forms import ForecastCalculateForm, ValueBetForm
+from forecasts.forms import ForecastCalculateForm
 from forecasts.models import Forecast
 from matches.models import Match
 
@@ -93,11 +93,22 @@ def forecast_list(request):
     )
 
 
-def forecast_detail(request, pk):
-    """Detalle del pronóstico: xG, matrix Poisson, probs 1X2 y forma.
+def _recent_matches_for_team(team, n=5):
+    """Lista de últimos n partidos finalizados de un equipo."""
+    matches = recent_finished_matches(team, n=n)
+    return [{
+        "date": m.utc_date,
+        "home_team": m.home_team,
+        "away_team": m.away_team,
+        "home_goals": m.home_goals,
+        "away_goals": m.away_goals,
+        "competition": m.competition,
+    } for m in matches]
 
-    Acepta POST con cuotas 1X2 (ValueBetForm) para analizar value bet al
-    vuelo. Las cuotas no se persisten: el análisis es solo para este partido.
+
+def forecast_detail(request, pk):
+    """Detalle del pronóstico: xG, matrix Poisson, probs 1X2, forma y
+    últimos 5 partidos de cada equipo.
     """
     forecast = get_object_or_404(
         Forecast.objects.select_related(
@@ -110,38 +121,13 @@ def forecast_detail(request, pk):
 
     matrix_ctx = _build_matrix_context(forecast.xg_home, forecast.xg_away)
 
-    value_analysis = None
-    if request.method == "POST":
-        value_form = ValueBetForm(request.POST)
-        if value_form.is_valid():
-            cd = value_form.cleaned_data
-            odds = {
-                "home": cd.get("odd_home"),
-                "draw": cd.get("odd_draw"),
-                "away": cd.get("odd_away"),
-                "1x": cd.get("odd_1x"),
-                "x2": cd.get("odd_x2"),
-                "12": cd.get("odd_12"),
-                "btts": cd.get("odd_btts"),
-                "score_home": cd.get("odd_score_home"),
-                "score_away": cd.get("odd_score_away"),
-                "over_05": cd.get("odd_over_05"),
-                "over_15": cd.get("odd_over_15"),
-                "over_25": cd.get("odd_over_25"),
-                "over_35": cd.get("odd_over_35"),
-                "over_45": cd.get("odd_over_45"),
-                "dnb_home": cd.get("odd_dnb_home"),
-                "dnb_away": cd.get("odd_dnb_away"),
-            }
-            if any(o is not None for o in odds.values()):
-                value_analysis = value_bet_analysis(matrix_ctx["markets"], odds)
-    else:
-        value_form = ValueBetForm()
+    recent_home = _recent_matches_for_team(forecast.match.home_team, n=5)
+    recent_away = _recent_matches_for_team(forecast.match.away_team, n=5)
 
     context = {
         "forecast": forecast,
-        "value_form": value_form,
-        "value_analysis": value_analysis,
+        "recent_home": recent_home,
+        "recent_away": recent_away,
         **matrix_ctx,
     }
     return render(request, "forecasts/forecast_detail.html", context)
@@ -154,9 +140,7 @@ def forecast_calculate(request):
     escenarios what-if y probar el modelo sin un partido en la DB.
 
     Soporta sede neutral (anula localía) y factores de forma reciente
-    (multiplicativos sobre λ). Tras calcular, opcionalmente analiza
-    value bet contra cuotas ingresadas (ValueBetForm), igual que la
-    view de detalle.
+    (multiplicativos sobre λ).
     """
     if request.method == "POST":
         form = ForecastCalculateForm(request.POST)
@@ -176,40 +160,8 @@ def forecast_calculate(request):
             )
             matrix_ctx = _build_matrix_context(xg_home, xg_away)
 
-            # Análisis de value bet opcional (cuotas en el mismo POST).
-            value_form = ValueBetForm(request.POST)
-            value_analysis = None
-            if value_form.is_valid():
-                vcd = value_form.cleaned_data
-                odds = {
-                    "home": vcd.get("odd_home"),
-                    "draw": vcd.get("odd_draw"),
-                    "away": vcd.get("odd_away"),
-                    "1x": vcd.get("odd_1x"),
-                    "x2": vcd.get("odd_x2"),
-                    "12": vcd.get("odd_12"),
-"btts": vcd.get("odd_btts"),
-                "score_home": vcd.get("odd_score_home"),
-                "score_away": vcd.get("odd_score_away"),
-                "over_05": vcd.get("odd_over_05"),
-                    "over_15": vcd.get("odd_over_15"),
-                    "over_25": vcd.get("odd_over_25"),
-                    "over_35": vcd.get("odd_over_35"),
-                    "over_45": vcd.get("odd_over_45"),
-                    "dnb_home": vcd.get("odd_dnb_home"),
-                    "dnb_away": vcd.get("odd_dnb_away"),
-                }
-                if any(o is not None for o in odds.values()):
-                    value_analysis = value_bet_analysis(
-                        matrix_ctx["markets"], odds
-                    )
-            else:
-                value_form = ValueBetForm()
-
             context = {
                 "form": form,
-                "value_form": value_form,
-                "value_analysis": value_analysis,
                 "xg_home": xg_home,
                 "xg_away": xg_away,
                 "calculated": True,
@@ -222,10 +174,9 @@ def forecast_calculate(request):
             )
     else:
         form = ForecastCalculateForm()
-        value_form = ValueBetForm()
 
     return render(
         request,
         "forecasts/forecast_calculate.html",
-        {"form": form, "value_form": ValueBetForm(), "calculated": False},
+        {"form": form, "calculated": False},
     )

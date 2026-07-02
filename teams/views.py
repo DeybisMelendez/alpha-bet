@@ -111,7 +111,9 @@ def team_detail(request, pk):
     recent_matches = list(recent_finished_matches(team, n=5))
     upcoming_matches = upcoming_matches_for_team(team)
 
-    attack_rating, defense_rating = attack_defense_ratings(team)
+    atk_home, atk_away, def_home, def_away = attack_defense_ratings(team)
+    attack_rating = (atk_home + atk_away) / 2
+    defense_rating = (def_home + def_away) / 2
 
     form_labels = [_form_label(team, m) for m in recent_matches]
 
@@ -134,6 +136,10 @@ def team_detail(request, pk):
             "upcoming_matches": upcoming_matches,
             "attack_rating": attack_rating,
             "defense_rating": defense_rating,
+            "atk_home": atk_home,
+            "atk_away": atk_away,
+            "def_home": def_home,
+            "def_away": def_away,
             "form_labels": form_labels,
             "competitions": competitions,
             "elo_logs": elo_logs,

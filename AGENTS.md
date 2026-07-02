@@ -25,7 +25,7 @@ python manage.py <command>
 | `sync_matches [--days-back N --days-ahead N] [--no-elo --no-forecasts]` | Sincroniza partidos vía `/v4/matches?dateFrom=&dateTo=` (una petición por ventana, default hoy ± 1) filtrando a las competiciones registradas. Procesa Elo y pronósticos. |
 | `sync_teams --competition ID --season YYYY` | Sincroniza equipos de una competición/temporada (`/v4/competitions/{id}/teams`). |
 | `load_history --seed --from 2020 [--to YYYY]` | Crea la cola `BackfillJob(PENDING)` para competición×temporada del rango (no consume requests). |
-| `load_history [--max-requests N] [--competitions A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. |
+| `load_history [--max-requests N] [--competitions A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. Usar `--years-back 4` para solo temporadas accesibles en plan Free (~2023+). |
 | `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge]` | Orquestador diario: ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos y purge de caché API. |
 | `update_elo [--limit N]` | Procesa partidos finalizados sin Elo aplicado. |
 | `reset_elo [--dry-run]` | Reinicia Elo y pronósticos para reconstruir desde cero. |

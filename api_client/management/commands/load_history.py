@@ -40,8 +40,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Crea los BackfillJob PENDING para todas las competiciones "
-                "registradas × temporadas del rango (--from/--to). No consume "
-                "peticiones. Idempotente."
+                "registradas × temporadas del rango (--from/--to o --years-back). "
+                "Idempotente."
             ),
         )
         parser.add_argument(
@@ -57,6 +57,16 @@ class Command(BaseCommand):
             type=int,
             default=timezone.now().year,
             help="Año final del rango de backfill (default: año actual).",
+        )
+        parser.add_argument(
+            "--years-back",
+            type=int,
+            default=0,
+            help=(
+                "Sembrar solo las últimas N temporadas disponibles de cada "
+                "competición. Si se usa, ignora --from. "
+                "Ej: --years-back 4 para accesibles en plan Free (~2023+)."
+            ),
         )
         parser.add_argument(
             "--competitions",
@@ -116,6 +126,7 @@ class Command(BaseCommand):
             self._seed_jobs(
                 from_year=options["from_year"],
                 to_year=options["to_year"],
+                years_back=options.get("years_back", 0),
                 competitions_arg=options.get("competitions"),
                 seasons_arg=options.get("seasons"),
             )
@@ -145,8 +156,8 @@ class Command(BaseCommand):
             return list(qs)
         return list(Competition.objects.all().order_by("id_api"))
 
-    def _seed_jobs(self, from_year, to_year, competitions_arg, seasons_arg):
-        seasons = self._resolve_seasons(from_year, to_year, seasons_arg)
+    def _seed_jobs(self, from_year, to_year, years_back, competitions_arg, seasons_arg):
+        client = FootballDataClient()
         competitions = self._resolve_competitions(competitions_arg)
         if not competitions:
             self.stdout.write(self.style.WARNING(
@@ -156,11 +167,53 @@ class Command(BaseCommand):
 
         created = 0
         existing = 0
-        for comp in competitions:
-            for season in seasons:
+        skipped_abs = 0  # sin datos históricos en la API
+        skipped_range = 0  # fuera del rango --from/--to
+        rate_limit = settings.FOOTBALL_DATA_RATE_LIMIT_SECONDS
+        for i, comp in enumerate(competitions):
+            if i > 0:
+                time.sleep(rate_limit)
+
+            # Obtener temporadas reales que la API reporta para esta comp.
+            try:
+                data = client.get_competition(comp.id_api)
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(
+                    f"  {comp.code}: error consultando API ({exc}), se omite"
+                ))
+                skipped_abs += 1
+                continue
+            api_seasons = sorted(
+                int(s["startDate"][:4])
+                for s in (data.get("seasons") or [])
+                if s.get("startDate") and len(s["startDate"]) >= 4
+            )
+
+            if not api_seasons:
+                skipped_abs += 1
+                self.stdout.write(self.style.WARNING(
+                    f"  {comp.code}: sin datos de temporadas en la API (se omite)"
+                ))
+                continue
+
+            if seasons_arg:
+                wanted = self._resolve_seasons(from_year, to_year, seasons_arg)
+            elif years_back:
+                # Últimas N temporadas disponibles
+                cutoff = max(api_seasons) - years_back + 1
+                wanted = [str(y) for y in api_seasons if y >= cutoff]
+            else:
+                # Rango --from/--to
+                wanted = [str(y) for y in api_seasons if from_year <= y <= to_year]
+                skipped_range += len([y for y in api_seasons if y < from_year or y > to_year])
+
+            valid = sorted(set(int(s) for s in wanted if int(s) in api_seasons))
+            skipped_api = len(wanted) - len(valid)
+
+            for season in valid:
                 _, was_created = BackfillJob.objects.get_or_create(
                     competition=comp,
-                    season=season,
+                    season=str(season),
                     defaults={"status": BackfillJob.Status.PENDING},
                 )
                 if was_created:
@@ -168,11 +221,17 @@ class Command(BaseCommand):
                 else:
                     existing += 1
 
-        total = len(competitions) * len(seasons)
+            self.stdout.write(
+                f"  {comp.code:5s}  {comp.name:30s}  "
+                f"{len(valid)} temporadas ({len(api_seasons)} disponibles)"
+                + (f", {skipped_api} fuera de rango omitidas" if skipped_api else "")
+            )
+
         self.stdout.write(self.style.SUCCESS(
             f"Cola sembrada: {created} nuevos PENDING, {existing} ya "
-            f"existían. Total trabajos: {total} "
-            f"({len(competitions)} ligas × {len(seasons)} temporadas)."
+            f"existían. "
+            + (f"{skipped_abs} sin historial, " if skipped_abs else "")
+            + (f"{skipped_range} fuera de rango ignoradas." if skipped_range else "Listo.")
         ))
 
     def _reset_jobs(self):
@@ -280,12 +339,26 @@ class Command(BaseCommand):
                 comp.id_api, season=season
             )
         except Exception as exc:
+            exc_str = str(exc)
             stats["api_errors"] += 1
+
+            # 403 = plan Free no permite esta temporada histórica
+            if "403" in exc_str:
+                self.stdout.write(self.style.WARNING(
+                    f"    Plan Free no permite temporada {season} "
+                    f"(se omite)"
+                ))
+                job.status = BackfillJob.Status.EMPTY
+                job.error_msg = "403: temporada no accesible en plan Free"
+                job.save(update_fields=["status", "error_msg"])
+                stats["jobs_empty"] += 1
+                return
+
             job.status = BackfillJob.Status.ERROR
-            job.error_msg = str(exc)[:500]
+            job.error_msg = exc_str[:500]
             job.save(update_fields=["status", "error_msg"])
             self.stderr.write(self.style.ERROR(f"    Error API: {exc}"))
-            if "429" in str(exc):
+            if "429" in exc_str:
                 reset = 60
                 self.stdout.write(
                     f"    Rate limit, esperando {reset}s..."

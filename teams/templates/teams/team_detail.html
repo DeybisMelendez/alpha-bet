@@ -23,11 +23,11 @@
     </article>
     <article class="kpi">
         <h2 class="monospace">{{ attack_rating|floatformat:2 }}</h2>
-        <p>Ataque ajust.</p>
+        <p>Ataque prom. <small>L: {{ atk_home|floatformat:2 }} / V: {{ atk_away|floatformat:2 }}</small></p>
     </article>
     <article class="kpi">
         <h2 class="monospace">{{ defense_rating|floatformat:2 }}</h2>
-        <p>Defensa ajust.</p>
+        <p>Defensa prom. <small>L: {{ def_home|floatformat:2 }} / V: {{ def_away|floatformat:2 }}</small></p>
     </article>
 </div>
 

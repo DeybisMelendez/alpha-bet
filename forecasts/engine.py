@@ -474,29 +474,6 @@ def probabilities_1x2(matrix):
     return p_home, p_draw, p_away
 
 
-# Mercados derivados mostrables en la vista de pronóstico. El orden define
-# cómo se presentan en la UI. Las claves coinciden con los campos de cuotas
-# del ValueBetForm (odd_<clave>) y con los labels esperados por el template.
-MARKET_LABELS = (
-    ("home", "Local (1)"),
-    ("draw", "Empate (X)"),
-    ("away", "Visitante (2)"),
-    ("1x", "Doble op. 1X"),
-    ("x2", "Doble op. X2"),
-    ("12", "Sin empate (12)"),
-    ("btts", "Ambos marcan"),
-    ("score_home", "Local marca"),
-    ("score_away", "Visitante marca"),
-    ("over_05", "Over 0.5"),
-    ("over_15", "Over 1.5"),
-    ("over_25", "Over 2.5"),
-    ("over_35", "Over 3.5"),
-    ("over_45", "Over 4.5"),
-    ("dnb_home", "DNB Local"),
-    ("dnb_away", "DNB Visitante"),
-)
-
-
 def market_probabilities(matrix):
     """Probabilidades de los mercados de apuestas derivados de la matriz.
 
@@ -628,70 +605,6 @@ def _has_venue_history(team, ref_date=None):
     home_ok = _venue_matches(team, "home", min_venue)
     away_ok = _venue_matches(team, "away", min_venue)
     return len(home_ok) >= min_venue and len(away_ok) >= min_venue
-
-
-# ---------------------------------------------------------------------------
-# Análisis de value bet (cuotas manuales).
-# ---------------------------------------------------------------------------
-
-def value_bet_analysis(market_probs, odds):
-    """Compara las probabilidades del modelo con cuotas por mercado.
-
-    Recibe las probabilidades de los mercados (dict clave -> prob, ver
-    `market_probabilities`) y las cuotas ingresadas (dict clave -> odd,
-    pueden ser None para los mercados sin cuota).
-
-    Para cada mercado con cuota calcula:
-      * fair_odds: cuota justa del modelo (1 / prob_modelo).
-      * implied_prob: probabilidad implícita en la cuota (1 / cuota).
-      * ev: valor esperado por unidad apostada (prob_modelo * cuota - 1).
-            ev > 0 indica value bet.
-      * edge: ventaja del modelo sobre la cuota (prob_modelo - implied_prob).
-      * is_value: True si ev > 0.
-
-    El margen de la casa (vig/overround) solo tiene sentido sobre un grupo
-    de resultados mutuamente excluyentes y exhaustivos, por eso se calcula
-    únicamente para el trío 1X2 (cuando las tres cuotas están presentes).
-
-    La recomendación es el mercado con mayor EV positivo.
-
-    Las cuotas se ingresan manualmente: ninguna API del proyecto ofrece
-    odds en su plan Free. El análisis es transitorio (no se persiste).
-    """
-    rows = []
-    for key, _label in MARKET_LABELS:
-        prob = market_probs.get(key)
-        odd = odds.get(key)
-        if prob is None:
-            continue
-        if odd is None or odd <= 0:
-            rows.append({"label": key, "prob": prob, "odd": None})
-            continue
-        fair_odds = 1.0 / prob if prob > 0 else float("inf")
-        implied = 1.0 / odd
-        ev = prob * odd - 1.0
-        edge = prob - implied
-        rows.append({
-            "label": key,
-            "prob": prob,
-            "odd": odd,
-            "implied_prob": implied,
-            "fair_odds": fair_odds,
-            "ev": ev,
-            "edge": edge,
-            "is_value": ev > 0,
-        })
-
-    provided = [r for r in rows if r["odd"] is not None]
-
-    # Vig solo para el trío 1X2: resultados que particionan el espacio.
-    trio = [r for r in rows if r["label"] in ("home", "draw", "away") and r["odd"] is not None]
-    vig = sum(r["implied_prob"] for r in trio) - 1.0 if len(trio) == 3 else None
-
-    value_rows = [r for r in provided if r["is_value"]]
-    recommendation = max(value_rows, key=lambda r: r["ev"]) if value_rows else None
-
-    return {"rows": rows, "vig": vig, "recommendation": recommendation}
 
 
 # ---------------------------------------------------------------------------
