@@ -23,21 +23,21 @@
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-home" style="width: {% widthratio p_home 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace">{% widthratio p_home 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_home >= 0.58 %} prob-high{% endif %}">{% widthratio p_home 1 100 %}%</span>
     </div>
     <div class="prob-row">
         <span class="prob-label">Empate (X)</span>
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-draw" style="width: {% widthratio p_draw 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace">{% widthratio p_draw 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_draw >= 0.58 %} prob-high{% endif %}">{% widthratio p_draw 1 100 %}%</span>
     </div>
     <div class="prob-row">
         <span class="prob-label">Visitante (2)</span>
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-away" style="width: {% widthratio p_away 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace">{% widthratio p_away 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_away >= 0.58 %} prob-high{% endif %}">{% widthratio p_away 1 100 %}%</span>
     </div>
     <p class="text-muted small mt-1">
         Marcador más probable:
@@ -58,11 +58,11 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>1X (local o empate)</td><td class="text-center monospace">{% widthratio markets.1x 1 100 %}%</td></tr>
-                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace">{% widthratio markets.x2 1 100 %}%</td></tr>
-                    <tr><td>12 (sin empate)</td><td class="text-center monospace">{% widthratio markets.12 1 100 %}%</td></tr>
-                    <tr><td>DNB Local</td><td class="text-center monospace">{% widthratio markets.dnb_home 1 100 %}%</td></tr>
-                    <tr><td>DNB Visitante</td><td class="text-center monospace">{% widthratio markets.dnb_away 1 100 %}%</td></tr>
+                    <tr><td>1X (local o empate)</td><td class="text-center monospace{% if markets.1x >= 0.58 %} prob-high{% endif %}">{% widthratio markets.1x 1 100 %}%</td></tr>
+                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace{% if markets.x2 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.x2 1 100 %}%</td></tr>
+                    <tr><td>12 (sin empate)</td><td class="text-center monospace{% if markets.12 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.12 1 100 %}%</td></tr>
+                    <tr><td>DNB Local</td><td class="text-center monospace{% if markets.dnb_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_home 1 100 %}%</td></tr>
+                    <tr><td>DNB Visitante</td><td class="text-center monospace{% if markets.dnb_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_away 1 100 %}%</td></tr>
                 </tbody>
             </table>
         </article>
@@ -71,8 +71,8 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>Sí</td><td class="text-center monospace">{% widthratio markets.btts 1 100 %}%</td></tr>
-                    <tr><td>No</td><td class="text-center monospace">{% widthratio markets.btts_no 1 100 %}%</td></tr>
+                    <tr><td>Sí</td><td class="text-center monospace{% if markets.btts >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts 1 100 %}%</td></tr>
+                    <tr><td>No</td><td class="text-center monospace{% if markets.btts_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts_no 1 100 %}%</td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
@@ -82,10 +82,10 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>{{ forecast.match.home_team.name }} marca</td><td class="text-center monospace">{% widthratio markets.score_home 1 100 %}%</td></tr>
-                    <tr><td>{{ forecast.match.home_team.name }} no marca</td><td class="text-center monospace">{% widthratio markets.score_home_no 1 100 %}%</td></tr>
-                    <tr><td>{{ forecast.match.away_team.name }} marca</td><td class="text-center monospace">{% widthratio markets.score_away 1 100 %}%</td></tr>
-                    <tr><td>{{ forecast.match.away_team.name }} no marca</td><td class="text-center monospace">{% widthratio markets.score_away_no 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.home_team.name }} marca</td><td class="text-center monospace{% if markets.score_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.home_team.name }} no marca</td><td class="text-center monospace{% if markets.score_home_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home_no 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.away_team.name }} marca</td><td class="text-center monospace{% if markets.score_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away 1 100 %}%</td></tr>
+                    <tr><td>{{ forecast.match.away_team.name }} no marca</td><td class="text-center monospace{% if markets.score_away_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away_no 1 100 %}%</td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(equipo marca al menos un gol).</p>
@@ -95,11 +95,11 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Over</th><th class="text-center">Under</th></tr></thead>
                 <tbody>
-                    <tr><td>0.5</td><td class="text-center monospace">{% widthratio markets.over_05 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_05 1 100 %}%</td></tr>
-                    <tr><td>1.5</td><td class="text-center monospace">{% widthratio markets.over_15 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_15 1 100 %}%</td></tr>
-                    <tr><td>2.5</td><td class="text-center monospace">{% widthratio markets.over_25 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_25 1 100 %}%</td></tr>
-                    <tr><td>3.5</td><td class="text-center monospace">{% widthratio markets.over_35 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_35 1 100 %}%</td></tr>
-                    <tr><td>4.5</td><td class="text-center monospace">{% widthratio markets.over_45 1 100 %}%</td><td class="text-center monospace">{% widthratio markets.under_45 1 100 %}%</td></tr>
+                    <tr><td>0.5</td><td class="text-center monospace{% if markets.over_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_05 1 100 %}%</td><td class="text-center monospace{% if markets.under_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_05 1 100 %}%</td></tr>
+                    <tr><td>1.5</td><td class="text-center monospace{% if markets.over_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_15 1 100 %}%</td><td class="text-center monospace{% if markets.under_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_15 1 100 %}%</td></tr>
+                    <tr><td>2.5</td><td class="text-center monospace{% if markets.over_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_25 1 100 %}%</td><td class="text-center monospace{% if markets.under_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_25 1 100 %}%</td></tr>
+                    <tr><td>3.5</td><td class="text-center monospace{% if markets.over_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_35 1 100 %}%</td><td class="text-center monospace{% if markets.under_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_35 1 100 %}%</td></tr>
+                    <tr><td>4.5</td><td class="text-center monospace{% if markets.over_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_45 1 100 %}%</td><td class="text-center monospace{% if markets.under_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_45 1 100 %}%</td></tr>
                 </tbody>
             </table>
         </article>

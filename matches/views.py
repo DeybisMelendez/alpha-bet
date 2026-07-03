@@ -7,16 +7,19 @@ from teams.models import Competition
 
 
 def match_list(request):
-    """Listado de partidos filtrables por competición y estado."""
+    """Listado de partidos filtrables por competición, temporada y estado."""
     qs = Match.objects.select_related(
         "competition", "home_team", "away_team"
     )
 
     competition_code = request.GET.get("competition", "").strip()
+    season = request.GET.get("season", "").strip()
     status = request.GET.get("status", "").strip()
 
     if competition_code:
         qs = qs.filter(competition__code=competition_code)
+    if season:
+        qs = qs.filter(season=season)
     if status:
         qs = qs.filter(status=status)
 
@@ -25,6 +28,11 @@ def match_list(request):
 
     competitions = Competition.objects.all().order_by("name")
     status_choices = Match.Status.choices
+    seasons = (
+        Match.objects.values_list("season", flat=True)
+        .distinct()
+        .order_by("-season")
+    )
 
     return render(
         request,
@@ -33,7 +41,9 @@ def match_list(request):
             "matches": matches,
             "competitions": competitions,
             "status_choices": status_choices,
+            "seasons": seasons,
             "selected_competition": competition_code,
+            "selected_season": season,
             "selected_status": status,
         },
     )

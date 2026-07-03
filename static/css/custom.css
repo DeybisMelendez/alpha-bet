@@ -63,6 +63,9 @@
 .value-positive { color: #16a34a; }
 .value-negative { color: #dc2626; }
 
+/* ===== Probabilidad alta (>= 58%) ===== */
+.prob-high { color: #16a34a; font-weight: 700; }
+
 /* ===== Barras de probabilidad ===== */
 .prob-row { display: flex; align-items: center; gap: .5rem; margin: .3rem 0; }
 .prob-label { width: 5rem; font-size: .85rem; }
@@ -105,6 +108,33 @@ table.compact td, table.compact th { padding: .4rem .5rem; }
 .rank-num { width: 2.5rem; color: var(--pico-muted-color); }
 .team-tla { width: 4rem; color: var(--pico-muted-color); font-size: .85rem; }
 .club-colors { font-size: .85rem; color: var(--pico-muted-color); }
+
+/* ===== Navegación de temporadas ===== */
+.season-nav {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.season-nav a {
+    text-decoration: none;
+    padding: .15rem .5rem;
+    border-radius: 999px;
+    border: 1px solid var(--pico-border-color);
+    font-size: 0.85rem;
+}
+.season-nav a:hover {
+    border-color: var(--pico-primary);
+    color: var(--pico-primary);
+}
+.season-current {
+    padding: .15rem .5rem;
+    border-radius: 999px;
+    background: var(--pico-primary);
+    color: white;
+    font-size: 0.85rem;
+}
 
 /* ===== Escudos ===== */
 .team-crest { width: 32px; height: 32px; vertical-align: middle; }

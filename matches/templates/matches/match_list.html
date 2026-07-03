@@ -19,6 +19,17 @@
             </select>
         </label>
         <label>
+            Temporada
+            <select name="season">
+                <option value="">Todas</option>
+                {% for s in seasons %}
+                <option value="{{ s }}" {% if s == selected_season %}selected{% endif %}>
+                    {{ s }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
             Estado
             <select name="status">
                 <option value="">Todos</option>

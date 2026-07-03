@@ -12,6 +12,21 @@ from teams.models import Competition, Team, TeamCompetition
 from elo.models import EloLog
 
 
+def _available_seasons(competition):
+    """Retorna seasons ordenadas descendente para una competición."""
+    tc_seasons = set(
+        TeamCompetition.objects.filter(competition=competition)
+        .values_list("season", flat=True)
+        .distinct()
+    )
+    match_seasons = set(
+        Match.objects.filter(competition=competition)
+        .values_list("season", flat=True)
+        .distinct()
+    )
+    return sorted(tc_seasons | match_seasons, reverse=True)
+
+
 def competition_list(request):
     """Listado de todas las competiciones disponibles."""
     competitions = (
@@ -26,10 +41,14 @@ def competition_list(request):
     )
 
 
-def competition_detail(request, code):
-    """Ranking Elo de equipos de una competición en su temporada actual."""
+def competition_detail(request, code, season=None):
+    """Ranking Elo de equipos de una competición, opcionalmente por temporada."""
     competition = get_object_or_404(Competition, code=code)
-    season = competition.current_season
+
+    if season is None:
+        season = competition.current_season
+
+    available_seasons = _available_seasons(competition)
 
     team_ids = TeamCompetition.objects.filter(
         competition=competition,
@@ -45,6 +64,7 @@ def competition_detail(request, code):
     upcoming = (
         Match.objects.filter(
             competition=competition,
+            season=season,
             status__in=[Match.Status.SCHEDULED, Match.Status.TIMED],
             utc_date__gte=now,
         )
@@ -55,6 +75,7 @@ def competition_detail(request, code):
     recent = (
         Match.objects.filter(
             competition=competition,
+            season=season,
             status=Match.Status.FINISHED,
         )
         .select_related("home_team", "away_team")
@@ -67,6 +88,7 @@ def competition_detail(request, code):
         {
             "competition": competition,
             "season": season,
+            "available_seasons": available_seasons,
             "teams": teams,
             "upcoming": upcoming,
             "recent": recent,

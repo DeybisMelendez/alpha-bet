@@ -130,6 +130,8 @@ def ensure_team(team_data, competition, season_str=""):
 
     area = team_data.get("area", {}) or {}
     country = area.get("name", "") if isinstance(area, dict) else ""
+    if not country and competition.area_name:
+        country = competition.area_name
 
     defaults = {
         "name": team_data.get("name", ""),

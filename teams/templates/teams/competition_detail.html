@@ -11,8 +11,21 @@
 <p class="text-muted">
     {{ competition.area_name|default:"-" }}
     · <span class="badge">{{ competition.league_type|default:competition.kind|title }}</span>
-    · Temporada {{ season|default:"-" }}
 </p>
+
+{% if available_seasons %}
+<nav class="season-nav" aria-label="Navegación de temporadas">
+    <small>Temporada:</small>
+    {% for s in available_seasons %}
+        {% if s == season %}
+            <strong class="season-current">{{ s }}</strong>
+        {% else %}
+            <a href="{% url 'competitions:detail_season' code=competition.code season=s %}">{{ s }}</a>
+        {% endif %}
+        {% if not forloop.last %}<span class="text-muted"> · </span>{% endif %}
+    {% endfor %}
+</nav>
+{% endif %}
 
 <section class="mt-1">
     <h2>Ranking Elo · {{ season|default:"Temporada actual" }}</h2>

@@ -34,9 +34,9 @@
                     {{ f.match.home_team.name }} vs {{ f.match.away_team.name }}
                 </a>
             </td>
-            <td class="text-center monospace">{% widthratio f.prob_home_win 1 100 %}%</td>
-            <td class="text-center monospace">{% widthratio f.prob_draw 1 100 %}%</td>
-            <td class="text-center monospace">{% widthratio f.prob_away_win 1 100 %}%</td>
+            <td class="text-center monospace{% if f.prob_home_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_home_win 1 100 %}%</td>
+            <td class="text-center monospace{% if f.prob_draw >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_draw 1 100 %}%</td>
+            <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}%</td>
             <td>
                 {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
             </td>
