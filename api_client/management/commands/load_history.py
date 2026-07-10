@@ -30,8 +30,9 @@ class Command(BaseCommand):
         "temporada) vía football-data.org, respetando el presupuesto diario "
         "de la API. Usa una cola persistente (BackfillJob) para reanudar tras "
         "interrupciones. Idempotente: save_match es update_or_create por "
-        "id_api. El plan Free permite temporadas históricas de las 12 "
-        "competiciones accesibles."
+        "id_api. El plan Free solo permite las últimas ~3-4 temporadas "
+        "de cada competición (las anteriores devuelven 403); ver "
+        "docs/api_football.md §Ventana histórica real del plan Free."
     )
 
     def add_arguments(self, parser):

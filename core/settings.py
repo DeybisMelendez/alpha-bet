@@ -142,9 +142,11 @@ MEDIA_URL = "/media/"
 #
 # Plan Free: 10 req/min, sin límite diario explícito, solo marcadores
 # /fixtures/schedules/league tables (sin bookings, alineaciones ni
-# estadísticas agregadas). Las temporadas históricas de las 12
-# competiciones Free son accesibles vía /v4/competitions/{id}/matches
-# ?season=YYYY. Los valores de rate-limit/budget son conservadores para
+# estadísticas agregadas). Los partidos históricos se piden vía
+# /v4/competitions/{id}/matches?season=YYYY, pero el Free solo expone las
+# últimas ~3-4 temporadas de cada competición (las anteriores devuelven
+# 403); ver docs/api_football.md §Ventana histórica real del plan Free.
+# Los valores de rate-limit/budget son conservadores para
 # no quemar el techo por minuto.
 API_CACHE_TTL_MINUTES = 60
 FOOTBALL_DATA_TOKEN = os.environ.get("FOOTBALL_DATA_TOKEN", "")

@@ -21,9 +21,11 @@ class FootballDataClient:
     el techo por minuto (plan Free: 10 req/min).
 
     Plan Free: solo 12 competiciones (settings.FOOTBALL_DATA_FREE_COMPETITION_CODES);
-    sin bookings, alineaciones ni estadísticas agregadas. Las temporadas
-    históricas de las 12 competiciones Free son accesibles vía
-    /v4/competitions/{id}/matches?season=YYYY.
+    sin bookings, alineaciones ni estadísticas agregadas. Los partidos
+    históricos se piden vía /v4/competitions/{id}/matches?season=YYYY, pero
+    el Free solo expone las últimas ~3-4 temporadas de cada competición
+    (las anteriores devuelven 403); ver docs/api_football.md §Ventana
+    histórica real del plan Free.
     """
 
     BASE_URL = "https://api.football-data.org"

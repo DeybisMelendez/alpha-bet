@@ -49,6 +49,14 @@ No se usan endpoints de cuotas/odds (la plataforma trabaja con plan Free, que
 no los incluye; las cuotas se ingresan manualmente en el detalle del
 pronóstico vía `ValueBetForm`).
 
+Mapeo de `status` de football-data.org a `Match.Status` en
+`api_client/sync.py:STATUS_MAP`. `SCHEDULED` y `TIMED` se persisten por
+separado (programado sin hora / con hora confirmada); `AWARDED` se persiste
+como tal para que entre al flujo de Elo. `save_match` aplica un fallback
+defensivo: si la API reporta un status no finalizado pero el partido ya
+tiene marcador y su fecha pasó, se reclasifica como `AWARDED`. Ver
+`docs/api.md` §Partidos para la semántica completa de los estados.
+
 ---
 
 # Planes
@@ -58,9 +66,12 @@ football-data.org limita por plan. Los valores relevantes para Alpha Bet:
 - **Free (€0)**: 10 req/min, 12 competiciones (ver coverage), marcadores
   (delayed), fixtures/schedules (delayed), league tables. **Sin** bookings
   (tarjetas), alineaciones, goleadores detallados ni estadísticas agregadas
-  (remates, posesión, córners, faltas). Las temporadas históricas de las 12
-  competiciones Free sí son accesibles vía `/v4/competitions/{id}/matches
-  ?season=YYYY`.
+  (remates, posesión, córners, faltas). Los partidos históricos se solicitan
+  vía `/v4/competitions/{id}/matches?season=YYYY`, pero el plan Free **solo
+  permite las últimas ~3-4 temporadas** de cada competición: el catálogo
+  `seasons[]` de `/v4/competitions/{id}` lista décadas de historia, mas al
+  pedir `/matches?season=YYYY` de una temporada fuera de la ventana permitida
+  el servidor responde `403` (ver §Ventana histórica real del plan Free).
 - **Free + Deep Data (€29/mo)**: añade bookings/cards, line-ups, goal scorers,
   squads.
 - **Statistic Add-On (€15/mo)**: corners, fouls, possession, saves, shots on/off
@@ -75,6 +86,43 @@ competición × temporada. `recompute_league_strength` recalibra con los promedi
 reales tras el backfill. `Competition.kind` se infiere del código (CL→CONTINENTAL,
 WC→WORLD_CUP, EC→INTERNATIONAL, demás→LEAGUE) y `home_advantage` es 80 para
 ligas nacionales y 0 para torneos neutral/sede internacional.
+
+---
+
+# Ventana histórica real del plan Free
+
+El catálogo `seasons[]` que devuelve `/v4/competitions/{id}` **no refleja el
+acceso real** del plan Free: lista todas las temporadas históricas (p. ej.
+Premier League desde 1888), pero al solicitar `/matches?season=YYYY` de una
+temporada fuera de la ventana permitida el servidor responde `403`.
+
+El corte exacto se confirma empíricamente con los `BackfillJob`: un job
+`DONE` indica temporada accesible (devolvió partidos); un job `EMPTY` con
+`error_msg="403: temporada no accesible en plan Free"` indica restringida
+(clasificación hecha por `load_history` en
+`api_client/management/commands/load_history.py:346-355`).
+
+Ventana observada (2026-07-08):
+
+| code | Competición | Temporadas accesibles en Free |
+| --- | --- | --- |
+| BL1 | Bundesliga | 2023, 2024, 2025, 2026 (4) |
+| BSA | Brasileirão Série A | 2023, 2024, 2025, 2026 (4) |
+| CL | Champions League | 2023, 2024, 2025 (3) |
+| DED | Eredivisie | 2023, 2024, 2025, 2026 (4) |
+| EC | European Championship | 2024 (1) |
+| ELC | Championship | 2023, 2024, 2025, 2026 (4) |
+| FL1 | Ligue 1 | 2023, 2024, 2025, 2026 (4) |
+| PD | La Liga | 2023, 2024, 2025, 2026 (4) |
+| PL | Premier League | 2023, 2024, 2025, 2026 (4) |
+| PPL | Primeira Liga | 2023, 2024, 2025, 2026 (4) |
+| SA | Serie A | 2023, 2024, 2025, 2026 (4) |
+| WC | FIFA World Cup | 2026 (1) |
+
+Total: **41 temporadas** accesibles de las 471 listadas en los catálogos.
+Toda temporada anterior a 2023 devuelve `403`. La ventana puede desplazarse
+con el tiempo; ejecutar `load_history --seed --from 2000` rechequea y marca
+los nuevos `403` de forma idempotente.
 
 ---
 

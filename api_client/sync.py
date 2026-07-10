@@ -5,6 +5,7 @@ team, match). El mapeo de status y goles sigue las convenciones de
 docs/api_football.md y docs/elo.md (penales = empate para Elo).
 """
 from django.conf import settings
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from elo.engine import assign_initial_elo
@@ -14,7 +15,7 @@ from teams.models import Competition, Team, TeamCompetition
 # Mapeo de status de football-data.org a Match.Status.
 STATUS_MAP = {
     "SCHEDULED": Match.Status.SCHEDULED,
-    "TIMED": Match.Status.SCHEDULED,
+    "TIMED": Match.Status.TIMED,
     "LIVE": Match.Status.IN_PLAY,
     "IN_PLAY": Match.Status.IN_PLAY,
     "PAUSED": Match.Status.PAUSED,
@@ -22,6 +23,7 @@ STATUS_MAP = {
     "POSTPONED": Match.Status.POSTPONED,
     "SUSPENDED": Match.Status.SUSPENDED,
     "CANCELLED": Match.Status.CANCELLED,
+    "AWARDED": Match.Status.AWARDED,
 }
 
 # Mapeo de score.duration a status_short. El motor de Elo detecta "PEN"
@@ -38,8 +40,15 @@ def _map_status(status):
 
 
 def _map_duration(duration):
-    """Convierte score.duration en status_short (FT/AET/PEN)."""
-    return DURATION_MAP.get(duration, "FT")
+    """Convierte score.duration en status_short (FT/AET/PEN).
+
+    Para partidos no finalizados (score=null) duration llega como None;
+    devolvemos '' en vez de 'FT' para no marcar como finalizado algo
+    que no lo está.
+    """
+    if not duration:
+        return ""
+    return DURATION_MAP.get(duration, "")
 
 
 def _kind_from_competition(code, area_name=""):
@@ -274,6 +283,22 @@ def save_match(match_data, competition, home, away, season_str=""):
 
     status = _map_status(match_data.get("status"))
     status_short = _map_duration(duration)
+
+    # Fallback defensivo: si la API reporta un status no finalizado pero
+    # el partido ya tiene marcador y su fecha ya pasó, lo trata como
+    # AWARDED (walkover/retro) para que entre al flujo de Elo. Protege
+    # contra status no documentados o futuros cambios del catálogo de
+    # football-data.org que traigan score en estados no finalizados.
+    has_result = home_goals is not None and away_goals is not None
+    if (
+        has_result
+        and status in (Match.Status.SCHEDULED, Match.Status.TIMED)
+        and utc_date is not None
+        and utc_date < timezone.now()
+    ):
+        status = Match.Status.AWARDED
+        if not status_short:
+            status_short = "FT"
 
     venue_name = match_data.get("venue", "") or ""
     referees_list = match_data.get("referees", []) or []

@@ -124,6 +124,24 @@ Nunca eliminar partidos históricos.
 > `rest_days_home/away`, `elo_processed`, `home_elo_before/after`,
 > `away_elo_before/after`.
 
+> **Semántica de `Match.Status`** (mapeo de football-data.org en
+> `api_client/sync.py:STATUS_MAP`):
+>
+> | status | Significado | ¿Tiene marcador? | ¿ Elo? |
+> | --- | --- | --- | --- |
+> | `SCHEDULED` | Programado, fecha/hora por confirmar. | No | No |
+> | `TIMED` | Programado con hora confirmada, sin marcador. | No | No |
+> | `IN_PLAY`/`PAUSED` | En juego. (El plan Free no los actualiza en vivo.) | Parcial | No |
+> | `FINISHED` | Jugado; marcador en `home_goals/away_goals`. | Sí | Sí |
+> | `AWARDED` | Adjudicado (walkover/retro); marcador adjudicado por la federación. | Sí | Sí (`is_finished=True`) |
+> | `POSTPONED`/`CANCELLED`/`SUSPENDED` | No jugado o suspendido. | No | No |
+>
+> `save_match` aplica un fallback defensivo: si la API reporta
+> `SCHEDULED`/`TIMED` pero el partido ya tiene marcador y su fecha
+> pasó, se reclasifica como `AWARDED` para que entre al flujo de Elo.
+> El comando `repair_match_statuses` corrige datos heredados del
+> mapeo anterior (en el que `AWARDED` caía a `SCHEDULED`).
+
 ---
 
 # Estadísticas del partido
