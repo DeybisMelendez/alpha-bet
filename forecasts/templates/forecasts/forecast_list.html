@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load forecast_extras %}
 {% block title %}Pronósticos · Alpha Bet{% endblock %}
 
 {% block content %}
@@ -34,9 +35,9 @@
                     {{ f.match.home_team.name }} vs {{ f.match.away_team.name }}
                 </a>
             </td>
-            <td class="text-center monospace{% if f.prob_home_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_home_win 1 100 %}%</td>
-            <td class="text-center monospace{% if f.prob_draw >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_draw 1 100 %}%</td>
-            <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}%</td>
+            <td class="text-center monospace{% if f.prob_home_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_home_win 1 100 %}% <span class="text-muted small">{{ f.prob_home_win|fair_odds }}</span></td>
+            <td class="text-center monospace{% if f.prob_draw >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_draw 1 100 %}% <span class="text-muted small">{{ f.prob_draw|fair_odds }}</span></td>
+            <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}% <span class="text-muted small">{{ f.prob_away_win|fair_odds }}</span></td>
             <td>
                 {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
             </td>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load forecast_extras %}
 {% block title %}Calcular pronóstico · Alpha Bet{% endblock %}
 
 {% block content %}
@@ -72,25 +73,25 @@
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-home" style="width: {% widthratio p_home 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace{% if p_home >= 0.58 %} prob-high{% endif %}">{% widthratio p_home 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_home >= 0.58 %} prob-high{% endif %}">{% widthratio p_home 1 100 %}% <span class="text-muted small">{{ p_home|fair_odds }}</span></span>
     </div>
     <div class="prob-row">
         <span class="prob-label">Empate (X)</span>
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-draw" style="width: {% widthratio p_draw 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace{% if p_draw >= 0.58 %} prob-high{% endif %}">{% widthratio p_draw 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_draw >= 0.58 %} prob-high{% endif %}">{% widthratio p_draw 1 100 %}% <span class="text-muted small">{{ p_draw|fair_odds }}</span></span>
     </div>
     <div class="prob-row">
         <span class="prob-label">Visitante (2)</span>
         <div class="prob-bar-bg">
             <div class="prob-bar prob-bar-away" style="width: {% widthratio p_away 1 100 %}%"></div>
         </div>
-        <span class="prob-value monospace{% if p_away >= 0.58 %} prob-high{% endif %}">{% widthratio p_away 1 100 %}%</span>
+        <span class="prob-value monospace{% if p_away >= 0.58 %} prob-high{% endif %}">{% widthratio p_away 1 100 %}% <span class="text-muted small">{{ p_away|fair_odds }}</span></span>
     </div>
     <p class="text-muted small mt-1">
         Marcador más probable: <strong>{{ markets.top_score }}</strong>
-        ({% widthratio markets.top_score_prob 1 100 %}%)
+        ({% widthratio markets.top_score_prob 1 100 %}% <span class="text-muted">{{ markets.top_score_prob|fair_odds }}</span>)
     </p>
 </section>
 
@@ -105,11 +106,11 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>1X (local o empate)</td><td class="text-center monospace{% if markets.1x >= 0.58 %} prob-high{% endif %}">{% widthratio markets.1x 1 100 %}%</td></tr>
-                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace{% if markets.x2 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.x2 1 100 %}%</td></tr>
-                    <tr><td>12 (sin empate)</td><td class="text-center monospace{% if markets.12 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.12 1 100 %}%</td></tr>
-                    <tr><td>DNB Local</td><td class="text-center monospace{% if markets.dnb_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_home 1 100 %}%</td></tr>
-                    <tr><td>DNB Visitante</td><td class="text-center monospace{% if markets.dnb_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_away 1 100 %}%</td></tr>
+                    <tr><td>1X (local o empate)</td><td class="text-center monospace{% if markets.1x >= 0.58 %} prob-high{% endif %}">{% widthratio markets.1x 1 100 %}% <span class="text-muted small">{{ markets.1x|fair_odds }}</span></td></tr>
+                    <tr><td>X2 (empate o visitante)</td><td class="text-center monospace{% if markets.x2 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.x2 1 100 %}% <span class="text-muted small">{{ markets.x2|fair_odds }}</span></td></tr>
+                    <tr><td>12 (sin empate)</td><td class="text-center monospace{% if markets.12 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.12 1 100 %}% <span class="text-muted small">{{ markets.12|fair_odds }}</span></td></tr>
+                    <tr><td>DNB Local</td><td class="text-center monospace{% if markets.dnb_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_home 1 100 %}% <span class="text-muted small">{{ markets.dnb_home|fair_odds }}</span></td></tr>
+                    <tr><td>DNB Visitante</td><td class="text-center monospace{% if markets.dnb_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.dnb_away 1 100 %}% <span class="text-muted small">{{ markets.dnb_away|fair_odds }}</span></td></tr>
                 </tbody>
             </table>
         </article>
@@ -118,8 +119,8 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>Sí</td><td class="text-center monospace{% if markets.btts >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts 1 100 %}%</td></tr>
-                    <tr><td>No</td><td class="text-center monospace{% if markets.btts_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts_no 1 100 %}%</td></tr>
+                    <tr><td>Sí</td><td class="text-center monospace{% if markets.btts >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts 1 100 %}% <span class="text-muted small">{{ markets.btts|fair_odds }}</span></td></tr>
+                    <tr><td>No</td><td class="text-center monospace{% if markets.btts_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.btts_no 1 100 %}% <span class="text-muted small">{{ markets.btts_no|fair_odds }}</span></td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(local y visitante marcan al menos un gol).</p>
@@ -129,10 +130,10 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Prob.</th></tr></thead>
                 <tbody>
-                    <tr><td>Local marca</td><td class="text-center monospace{% if markets.score_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home 1 100 %}%</td></tr>
-                    <tr><td>Local no marca</td><td class="text-center monospace{% if markets.score_home_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home_no 1 100 %}%</td></tr>
-                    <tr><td>Visitante marca</td><td class="text-center monospace{% if markets.score_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away 1 100 %}%</td></tr>
-                    <tr><td>Visitante no marca</td><td class="text-center monospace{% if markets.score_away_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away_no 1 100 %}%</td></tr>
+                    <tr><td>Local marca</td><td class="text-center monospace{% if markets.score_home >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home 1 100 %}% <span class="text-muted small">{{ markets.score_home|fair_odds }}</span></td></tr>
+                    <tr><td>Local no marca</td><td class="text-center monospace{% if markets.score_home_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_home_no 1 100 %}% <span class="text-muted small">{{ markets.score_home_no|fair_odds }}</span></td></tr>
+                    <tr><td>Visitante marca</td><td class="text-center monospace{% if markets.score_away >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away 1 100 %}% <span class="text-muted small">{{ markets.score_away|fair_odds }}</span></td></tr>
+                    <tr><td>Visitante no marca</td><td class="text-center monospace{% if markets.score_away_no >= 0.58 %} prob-high{% endif %}">{% widthratio markets.score_away_no 1 100 %}% <span class="text-muted small">{{ markets.score_away_no|fair_odds }}</span></td></tr>
                 </tbody>
             </table>
             <p class="text-muted small">P(equipo marca al menos un gol).</p>
@@ -142,15 +143,34 @@
             <table class="compact">
                 <thead><tr><th>Mercado</th><th class="text-center">Over</th><th class="text-center">Under</th></tr></thead>
                 <tbody>
-                    <tr><td>0.5</td><td class="text-center monospace{% if markets.over_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_05 1 100 %}%</td><td class="text-center monospace{% if markets.under_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_05 1 100 %}%</td></tr>
-                    <tr><td>1.5</td><td class="text-center monospace{% if markets.over_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_15 1 100 %}%</td><td class="text-center monospace{% if markets.under_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_15 1 100 %}%</td></tr>
-                    <tr><td>2.5</td><td class="text-center monospace{% if markets.over_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_25 1 100 %}%</td><td class="text-center monospace{% if markets.under_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_25 1 100 %}%</td></tr>
-                    <tr><td>3.5</td><td class="text-center monospace{% if markets.over_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_35 1 100 %}%</td><td class="text-center monospace{% if markets.under_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_35 1 100 %}%</td></tr>
-                    <tr><td>4.5</td><td class="text-center monospace{% if markets.over_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_45 1 100 %}%</td><td class="text-center monospace{% if markets.under_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_45 1 100 %}%</td></tr>
+                    <tr><td>0.5</td><td class="text-center monospace{% if markets.over_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_05 1 100 %}% <span class="text-muted small">{{ markets.over_05|fair_odds }}</span></td><td class="text-center monospace{% if markets.under_05 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_05 1 100 %}% <span class="text-muted small">{{ markets.under_05|fair_odds }}</span></td></tr>
+                    <tr><td>1.5</td><td class="text-center monospace{% if markets.over_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_15 1 100 %}% <span class="text-muted small">{{ markets.over_15|fair_odds }}</span></td><td class="text-center monospace{% if markets.under_15 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_15 1 100 %}% <span class="text-muted small">{{ markets.under_15|fair_odds }}</span></td></tr>
+                    <tr><td>2.5</td><td class="text-center monospace{% if markets.over_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_25 1 100 %}% <span class="text-muted small">{{ markets.over_25|fair_odds }}</span></td><td class="text-center monospace{% if markets.under_25 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_25 1 100 %}% <span class="text-muted small">{{ markets.under_25|fair_odds }}</span></td></tr>
+                    <tr><td>3.5</td><td class="text-center monospace{% if markets.over_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_35 1 100 %}% <span class="text-muted small">{{ markets.over_35|fair_odds }}</span></td><td class="text-center monospace{% if markets.under_35 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_35 1 100 %}% <span class="text-muted small">{{ markets.under_35|fair_odds }}</span></td></tr>
+                    <tr><td>4.5</td><td class="text-center monospace{% if markets.over_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.over_45 1 100 %}% <span class="text-muted small">{{ markets.over_45|fair_odds }}</span></td><td class="text-center monospace{% if markets.under_45 >= 0.58 %} prob-high{% endif %}">{% widthratio markets.under_45 1 100 %}% <span class="text-muted small">{{ markets.under_45|fair_odds }}</span></td></tr>
                 </tbody>
             </table>
         </article>
     </div>
+</section>
+
+<section class="mt-2">
+    <h3>Top 5 resultados más probables</h3>
+    <table class="compact">
+        <thead><tr><th>#</th><th>Marcador</th><th class="text-center">Prob.</th><th class="text-center">Cuota justa</th></tr></thead>
+        <tbody>
+            {% for s in top_scores %}
+            <tr>
+                <td class="text-muted small">{{ forloop.counter }}</td>
+                <td class="monospace"><strong>{{ s.score }}</strong></td>
+                <td class="text-center monospace">{% widthratio s.prob 1 100 %}%</td>
+                <td class="text-center monospace">{{ s.prob|fair_odds }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-muted">Sin resultados.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </section>
 
 <div class="grid mt-1">

@@ -568,6 +568,29 @@ def market_probabilities(matrix):
     }
 
 
+def top_correct_scores(matrix, n=5):
+    """Top n marcadores exactos más probables de la matriz Poisson.
+
+    Devuelve una lista de dicts ``{"score": "i-j", "prob": float}``
+    ordenada de mayor a menor probabilidad, con la probabilidad
+    normalizada por el total de la matriz (para respetar la corrección
+    Dixon-Coles cuando rho != 0). Se usa para mostrar el top 5 de
+    resultados más probables en las vistas de pronóstico.
+    """
+    total = sum(p for row in matrix for p in row)
+    if total <= 0:
+        return []
+    scores = []
+    for i, row in enumerate(matrix):
+        for j, p in enumerate(row):
+            scores.append((i, j, p))
+    scores.sort(key=lambda item: item[2], reverse=True)
+    return [
+        {"score": f"{i}-{j}", "prob": p / total}
+        for i, j, p in scores[:n]
+    ]
+
+
 def _form_summary(team):
     matches = list(recent_finished_matches(team, n=settings.FORECAST_FORM_LONG))
     form = []

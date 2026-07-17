@@ -8,6 +8,7 @@ from forecasts.engine import (
     market_probabilities,
     probabilities_1x2,
     recent_finished_matches,
+    top_correct_scores,
 )
 from forecasts.forms import ForecastCalculateForm
 from forecasts.models import Forecast
@@ -24,6 +25,7 @@ def _build_matrix_context(xg_home, xg_away):
     matrix = build_matrix(xg_home, xg_away)
     p_home, p_draw, p_away = probabilities_1x2(matrix)
     markets = market_probabilities(matrix)
+    top_scores = top_correct_scores(matrix, n=5)
 
     max_goals = settings.POISSON_MAX_GOALS
     goal_range = list(range(max_goals + 1))
@@ -62,6 +64,7 @@ def _build_matrix_context(xg_home, xg_away):
         "top_i": top_i,
         "top_j": top_j,
         "top_prob": top_p,
+        "top_scores": top_scores,
     }
 
 
