@@ -70,7 +70,7 @@ def _build_matrix_context(xg_home, xg_away):
 
 def forecast_list(request):
     """Listado de pronósticos de partidos próximos (programados)."""
-    now = timezone.now()
+    today = timezone.localdate()
     qs = (
         Forecast.objects
         .select_related(
@@ -80,7 +80,7 @@ def forecast_list(request):
         )
         .filter(
             match__status__in=[Match.Status.SCHEDULED, Match.Status.TIMED],
-            match__utc_date__gte=now,
+            match__utc_date__date__gte=today,
         )
         .order_by("match__utc_date")
     )
