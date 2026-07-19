@@ -26,24 +26,34 @@ python manage.py <command>
 | `sync_teams --competition ID --season YYYY` | Sincroniza equipos de una competición/temporada (`/v4/competitions/{id}/teams`). |
 | `load_history --seed --from 2020 [--to YYYY]` | Crea la cola `BackfillJob(PENDING)` para competición×temporada del rango (no consume requests). |
 | `load_history [--max-requests N] [--competitions A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. Usar `--years-back 4` para solo temporadas accesibles en plan Free (~2023+). |
-| `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge]` | Orquestador diario: ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos y purge de caché API. |
+| `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge --no-evaluation --no-calibration --force-calibration]` | Orquestador diario: ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos, evaluación incremental de finalizados, calibración cada CALIBRATION_INTERVAL_DAYS=30 y purge de caché API. |
 | `update_elo [--limit N]` | Procesa partidos finalizados sin Elo aplicado. |
 | `reset_elo [--dry-run]` | Reinicia Elo y pronósticos para reconstruir desde cero. |
 | `regress_elo <season> [--dry-run] [--regress-factor F] [--league-weight W]` | Regresión Elo entre temporadas (`0.90·Elo + 0.10·EloLiga`); idempotente vía `Team.last_regressed_season`. |
 | `generate_forecasts [--days N] [--limit N]` | Genera pronósticos de partidos programados en ventana. |
 | `prune_future_forecasts [--days N] [--dry-run]` | Poda pronósticos/partidos programados fuera de ventana. |
 | `backfill_forecasts [--competition CODE] [--season YYYY] [--from YYYY-MM-DD --to YYYY-MM-DD] [--limit N] [--dry-run]` | Genera pronósticos retros de partidos finalizados sin Forecast (no sobrescribe existentes). Usa Elo previo y tope de historial por fecha para evitar fugas de información. |
+| `evaluate_forecasts [--from YYYY-MM-DD --to YYYY-MM-DD] [--season YYYY] [--competition CODE] [--rebuild] [--no-calibration] [--limit N]` | Materializa `ForecastEvaluation` (Log Loss/Brier/RPS/MAE λ/acierto de marcador) sobre partidos finalizados con Forecast. Default incremental; `--rebuild` recalcula todo el rango. Reconstruye la calibración salvo `--no-calibration`. |
 
 ## Daily Update
 
 Orquesta sincronización de partidos de la ventana semanal (procesa Elo de
 finalizados y genera pronósticos de programados), poda de pronósticos/partidos
-stale fuera de ventana y purge de la caché de respuestas de la API.
+stale fuera de ventana, **materialización de `ForecastEvaluation` de partidos
+recién finalizados** y **reconstrucción de la calibración global cada
+`CALIBRATION_INTERVAL_DAYS=30` días** (con `CalibrationBin.snapshot_at` como
+sentinel). Cierra con purge de la caché de respuestas de la API.
 Pensado para ejecutarse una vez al día.
 
 La ventana del orquestador (`SYNC_BACK_DAYS=3`, `FORECAST_SCHEDULE_DAYS=7`) es
 más amplia que el default de `sync_matches` (`hoy ± 1 día`) para capturar
 resultados recientes y pronósticos de la próxima semana.
+
+La fase `evaluate_forecasts` dentro del daily es **incremental** (sin
+`--from`/`--to`, sin `--rebuild`): atrapa cualquier backlog si el cron se cae
+varios días. La calibración se reconstruye solo si pasaron ≥30 días desde el
+último snapshot (o si se usa `--force-calibration`). Un rebuild manual
+intermedio reinicia el contador automáticamente.
 
 ```bash
 python manage.py daily_update

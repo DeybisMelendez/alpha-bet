@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Validación · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Validación del modelo</h1>
+<p class="text-muted">
+    Métricas de precisión y calibración calculadas sobre partidos finalizados
+    con pronóstico previo. Log Loss y Brier miden qué tan bien asignó el
+    modelo la probabilidad al evento que ocurrió (más bajo = mejor). RPS
+    (Ranked Probability Score) penaliza errores entre outcomes lejanos en el
+    orden 1 &lt; X &lt; 2. El MAE de λ indica el error absoluto promedio entre
+    goles esperados y goles reales.
+</p>
+
+<form method="get" class="mb-1">
+    <div class="grid">
+        <label>
+            Desde
+            <input type="date" name="from" value="{{ selected_from }}">
+        </label>
+        <label>
+            Hasta
+            <input type="date" name="to" value="{{ selected_to }}">
+        </label>
+        <label>
+            Temporada
+            <select name="season">
+                <option value="">Todas</option>
+                {% for s in seasons %}
+                <option value="{{ s }}" {% if s == selected_season %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Competición
+            <select name="competition">
+                <option value="">Todas</option>
+                {% for code, name in competitions %}
+                <option value="{{ code }}" {% if code == selected_competition %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+    <button type="submit">Filtrar</button>
+</form>
+
+<p class="small text-muted">Pronósticos evaluados en el rango: <strong>{{ total_evaluated }}</strong></p>
+
+{% if total_evaluated == 0 %}
+<article class="mb-2">
+    <p class="text-muted">
+        Sin evaluaciones en el rango. Ejecute
+        <code>python manage.py evaluate_forecasts --rebuild</code>
+        para materializar las evaluaciones sobre partidos finalizados con pronóstico.
+    </p>
+</article>
+{% else %}
+
+<h2>KPIs</h2>
+<div class="kpi-grid mb-2">
+    <article class="kpi">
+        <h2>{{ kpis.log_loss_1x2|floatformat:3 }}</h2>
+        <p>Log Loss 1X2</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.brier_1x2|floatformat:3 }}</h2>
+        <p>Brier 1X2</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.rps_1x2|floatformat:3 }}</h2>
+        <p>RPS 1X2</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.ae_xg_home|floatformat:2 }}</h2>
+        <p>MAE λ local</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.ae_xg_away|floatformat:2 }}</h2>
+        <p>MAE λ visitante</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.ae_total|floatformat:2 }}</h2>
+        <p>MAE total λ</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ kpis.top_score_hit_ratio|floatformat:2 }}%</h2>
+        <p>Acierto marcador</p>
+    </article>
+    <article class="kpi">
+        <h2>{{ total_evaluated }}</h2>
+        <p>Muestras</p>
+    </article>
+</div>
+
+<details class="mb-2" open>
+    <summary>Distribución de resultados reales</summary>
+    <table class="compact">
+        <thead>
+            <tr><th>Outcome</th><th>Cantidad</th><th>Frecuencia</th></tr>
+        </thead>
+        <tbody>
+            {% for row in outcome_dist %}
+            <tr>
+                <td class="monospace">{{ row.actual_outcome }}</td>
+                <td class="monospace">{{ row.n }}</td>
+                <td class="monospace text-muted">
+                    {% widthratio row.n total_evaluated 100 %}%
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</details>
+
+<h2>Calibración</h2>
+<p class="text-muted small">
+    Para cada bin de probabilidad pronosticada compara el promedio predicho
+    contra la frecuencia observada. En calibración ideal ambas columnas
+    coinciden; si predicho &gt; observado el modelo está sobreconfiado en
+    ese bin.
+    {% if bins_window_from %}
+    Ventana del snapshot:
+    <strong>{{ bins_window_from|date:"Y-m-d" }}</strong> →
+    <strong>{{ bins_window_to|date:"Y-m-d" }}</strong>
+    <span class="text-muted">(independiente del filtro de KPIs)</span>
+    {% endif %}
+</p>
+
+{% for group in bins_groups %}
+<h3>{{ group.label }}</h3>
+{% if group.rows %}
+<div class="overflow-auto">
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Bin</th>
+                <th class="text-center">Muestras</th>
+                <th class="text-center">Predicho (promedio)</th>
+                <th class="text-center">Observado (frecuencia)</th>
+                <th class="text-center">Gap (predicho − observado)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in group.rows %}
+            <tr>
+                <td class="monospace">[{{ b.bin_start|floatformat:2 }}, {{ b.bin_end|floatformat:2 }})</td>
+                <td class="text-center monospace">{{ b.count }}</td>
+                <td class="text-center monospace">{{ b.predicted_avg|floatformat:3 }}</td>
+                <td class="text-center monospace">{{ b.observed_freq|floatformat:3 }}</td>
+                <td class="text-center monospace
+                    {% if b.count > 0 %}
+                    {% if b.gap > 0.005 %}value-negative
+                    {% elif b.gap < -0.005 %}value-positive
+                    {% endif %}
+                    {% endif %}">
+                    {% if b.count > 0 %}{{ b.gap|floatformat:3 }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted small">Sin bins en este rango. Ejecute <code>python manage.py evaluate_forecasts</code> para reconstruirlos.</p>
+{% endif %}
+{% endfor %}
+
+{% endif %}
+
+<p class="small text-muted mt-2">
+    Recalcule tras nuevas sincronizaciones con:
+    <code>python manage.py evaluate_forecasts</code>
+    (use <code>--rebuild --from 2023-01-01</code> para recalcular todo).
+</p>
+{% endblock %}

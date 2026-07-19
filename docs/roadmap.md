@@ -96,16 +96,39 @@ recomendación (el mercado con mayor EV positivo), pero **no** calcula el tamañ
 
 Mencionado en `docs/pronostico.md` §Validación y `docs/xG.md` §Validación.
 
+## Implementado
+
+App `validation` (`validation/`) con métricas de precisión y calibración
+sobre partidos finalizados con pronóstico previo.
+
+- **Métricas materializadas por partido** (`ForecastEvaluation`, 1:1 con
+  `Match`): Log Loss 1X2, Brier multi-clase, RPS (Ranked Probability Score
+  que penaliza errores ordinales), MAE de λ local/visitante/total y
+  `top_score_hit` (acierto de marcador).
+- **Calibración por bins de 0.1** (`CalibrationBin`): para cada outcome
+  (1/X/2) compara el promedio de probabilidad pronosticada contra la
+  frecuencia observada, señalando bins sobreconfiados/subestimados.
+  Único snapshot global vigente (cada refresh reemplaza la tabla).
+- **Comando `evaluate_forecasts`** (`validation/management/commands/`):
+  incremental por defecto (solo partidos sin evaluación) o `--rebuild`
+  para recalcular un rango. Reconstruye la calibración salvo
+  `--no-calibration`.
+- **Vista `/validation/`** con KPIs y tablas de calibración (Pico CSS).
+- **Distribución de outcomes reales** para inspección de balance.
+
+Tratamiento de penales: cuentan como empate en 1X2 (coherente con
+`elo/engine.py:99`); los goles de tiempo extra sí forman parte del resultado.
+
 ## No implementado (Roadmap)
 
-- **Log Loss**.
-- **Brier Score**.
-- **Calibration Curve**.
-- **ROI / Yield** sobre apuestas pasadas.
+- **ROI / Yield** sobre apuestas pasadas (requiere cuotas guardadas;
+  el plan Free de football-data.org no las expone; las cuotas se
+  ingresan manualmente en el detalle del pronóstico).
 - **Closing Line Value (CLV)**.
-- **Error absoluto medio del λ**.
-
-No existe ningún módulo de backtesting ni métricas de calibración en el código.
+- **Backtesting** (re-generar pronósticos retros para comparar variantes
+  del modelo: K-factor, ρ Dixon-Coles, decay temporal). La infraestructura
+  de los snapshots `*_elo_before` en `Match` lo permitiría sin fugas de
+  información.
 
 ---
 
@@ -190,7 +213,7 @@ Mencionado en `docs/pronostico.md` §Posibles mejoras futuras y `docs/xG.md`
 
 | Prioridad | Item |
 | --- | --- |
-| Alta | Métricas de validación (Log Loss, Brier, calibration) para saber si el modelo está calibrado. |
+| Alta | Backtesting (re-generar pronósticos retros con variantes del modelo). |
 | Alta | Persistir promedios móviles si el coste on-the-fly crece. |
 | Media | Asian Handicap básico desde la matriz Poisson. |
 | Media | Kelly fraccional y tracking de bankroll. |

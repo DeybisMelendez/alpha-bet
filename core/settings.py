@@ -9,9 +9,11 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=".secret")
@@ -45,6 +47,7 @@ INSTALLED_APPS = [
     "elo",
     "forecasts",
     "api_client",
+    "validation",
 ]
 
 MIDDLEWARE = [
@@ -159,18 +162,18 @@ FOOTBALL_DATA_DAILY_BUDGET = 1000
 # Códigos de competición accesibles en plan Free (ver coverage). El
 # comando sync_competitions filtra /v4/competitions por este set.
 FOOTBALL_DATA_FREE_COMPETITION_CODES = {
-    "CL",   # UEFA Champions League
-    "PL",   # Premier League
+    "CL",  # UEFA Champions League
+    "PL",  # Premier League
     "ELC",  # Championship
     "BL1",  # Bundesliga
     "FL1",  # Ligue 1
-    "SA",   # Serie A
-    "PD",   # La Liga
+    "SA",  # Serie A
+    "PD",  # La Liga
     "DED",  # Eredivisie
     "PPL",  # Primeira Liga
     "BSA",  # Campeonato Brasileiro Série A
-    "WC",   # FIFA World Cup
-    "EC",   # European Championship
+    "WC",  # FIFA World Cup
+    "EC",  # European Championship
 }
 
 # Elo inicial para nuevos equipos cuando no existe LeagueStrength.
@@ -189,7 +192,7 @@ ELO_HOME_ADVANTAGE = 80
 #   Mundial 30, Eliminatorias 25, Primera división/Copas nacionales 20,
 #   Amistosos 15. Equipos nuevos usan K=40 durante sus primeros
 #   ELO_NEW_TEAM_MATCHES partidos, ignorando el kind.
-ELO_K_DEFAULT = 20       # Clubes profesionales (ligas top)
+ELO_K_DEFAULT = 20  # Clubes profesionales (ligas top)
 ELO_K_WORLD_CUP = 30
 ELO_K_QUALIFIERS = 25
 ELO_K_CUP = 20
@@ -245,6 +248,14 @@ FORECAST_SCHEDULE_DAYS = 7
 # Ventana hacia atrás para capturar resultados recién finalizados
 # (incluye aplazamientos/retardos de actualización de la API).
 SYNC_BACK_DAYS = 3
+
+# Frecuencia de reconstrucción de la calibración dentro del orquestador
+# diario (daily_update). Con 10k+ evaluaciones, añadir 5-10 partidos/día
+# mueve los promedios por bin en <0.001: no aporta signal diario. 30 días
+# equilibran frescura y coste (~30s por refresh). El orquestador usa
+# CalibrationBin.snapshot_at como sentinel: si ocurre una calibración
+# manual intermedia (--rebuild), el contador se reinicia automáticamente.
+CALIBRATION_INTERVAL_DAYS = 30
 
 
 # Logging
