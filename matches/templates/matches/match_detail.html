@@ -138,6 +138,9 @@
     {% if match.forecast.is_fallback %}
     <p class="badge badge-warning small mt-1">Pronóstico fallback (historial insuficiente)</p>
     {% endif %}
+    {% if match.forecast.pending_prior_match %}
+    <p class="badge badge-info small mt-1">Partido previo pendiente: el pronóstico se actualizará automáticamente al finalizar.</p>
+    {% endif %}
     {% else %}
     <p class="text-muted">Sin pronóstico para este partido.</p>
     {% endif %}

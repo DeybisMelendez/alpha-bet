@@ -40,6 +40,7 @@
             <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}% <span class="text-muted small">{{ f.prob_away_win|fair_odds }}</span></td>
             <td>
                 {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
+                {% if f.pending_prior_match %}<span class="badge badge-info small" title="Un equipo tiene un partido previo pendiente; el pronóstico se actualizará al finalizar">Previo</span>{% endif %}
             </td>
         </tr>
         {% empty %}

@@ -48,6 +48,14 @@ class Forecast(models.Model):
             "forma reciente)."
         ),
     )
+    pending_prior_match = models.BooleanField(
+        default=False,
+        help_text=(
+            "True si alguno de los dos equipos tiene un partido previo "
+            "programado todavía no finalizado. El pronóstico se "
+            "actualizará automáticamente al finalizar dicho partido."
+        ),
+    )
     calculated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

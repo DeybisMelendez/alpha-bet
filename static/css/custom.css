@@ -58,6 +58,11 @@
     color: #1a1a1a;
     border-color: transparent;
 }
+.badge-info {
+    background: var(--pico-primary);
+    color: white;
+    border-color: transparent;
+}
 
 /* ===== Value Bet ===== */
 .value-positive { color: #16a34a; }

@@ -15,7 +15,21 @@
     · {{ forecast.match.utc_date|date:"d/m/Y H:i" }}
     · Calculado el {{ forecast.calculated_at|date:"d/m/Y H:i" }}
     {% if forecast.is_fallback %}· <span class="badge badge-warning small">Fallback</span>{% else %}· <span class="badge small">Completo</span>{% endif %}
+    {% if forecast.pending_prior_match %}· <span class="badge badge-info small">Previo pendiente</span>{% endif %}
 </p>
+
+{% if forecast.pending_prior_match %}
+<article class="notice mb-1">
+    <p class="small">
+        Al menos uno de los equipos tiene un
+        <strong>partido previo pendiente</strong> antes de este encuentro.
+        El Elo y la forma reciente pueden cambiar tras ese partido, por lo
+        que este pronóstico se
+        <strong>actualizará automáticamente</strong> al finalizarlo
+        (uso del comando diario o <code>sync_matches</code>).
+    </p>
+</article>
+{% endif %}
 
 <section class="mb-2">
     <h2>Probabilidades 1X2</h2>

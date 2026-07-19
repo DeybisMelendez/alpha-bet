@@ -684,6 +684,26 @@ def _home_advantage_for(match):
     return comp.home_advantage
 
 
+def _has_pending_prior_match(team, ref_match):
+    """True si `team` tiene un partido programado previo a `ref_match`.
+
+    Se considera "previo pendiente" a cualquier Match SCHEDULED/TIMED
+    futuro (utc_date >= now) con utc_date < ref_match.utc_date en el que
+    el equipo participe. Es la condición que hace que el pronóstico de
+    ref_match pueda cambiar al finalizar ese partido anterior (el flujo
+    `apply_elo_update` -> `regenerate_for_teams` ya lo actualiza).
+
+    No consume API: es una query local con `exists()`.
+    """
+    now = timezone.now()
+    return Match.objects.filter(
+        Q(home_team=team) | Q(away_team=team),
+        status__in=[Match.Status.SCHEDULED, Match.Status.TIMED],
+        utc_date__gte=now,
+        utc_date__lt=ref_match.utc_date,
+    ).exists()
+
+
 def generate_forecast(match, cache=None):
     home = match.home_team
     away = match.away_team
@@ -746,6 +766,11 @@ def generate_forecast(match, cache=None):
     p_home, p_draw, p_away = probabilities_1x2(matrix)
     markets = market_probabilities(matrix)
 
+    pending_prior = (
+        _has_pending_prior_match(home, match)
+        or _has_pending_prior_match(away, match)
+    )
+
     forecast, _ = Forecast.objects.update_or_create(
         match=match,
         defaults={
@@ -775,6 +800,7 @@ def generate_forecast(match, cache=None):
             "form_home": form_home,
             "form_away": form_away,
             "is_fallback": is_fallback,
+            "pending_prior_match": pending_prior,
         },
     )
 
