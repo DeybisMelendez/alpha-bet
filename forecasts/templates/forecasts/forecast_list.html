@@ -4,48 +4,125 @@
 
 {% block content %}
 <h1>Pronósticos</h1>
-<p class="text-muted">Próximos partidos con pronóstico calculado.</p>
-
-<p>
-    <a href="{% url 'forecasts:list' %}" class="badge small">Todos</a>
-    <a href="{% url 'forecasts:list' %}?fallback=1" class="badge badge-warning small">Solo fallback</a>
+<p class="text-muted">
+    {% if selected_status == "finished" %}
+    Pronósticos de partidos finalizados (útil para auditar el modelo).
+    {% elif selected_status == "all" %}
+    Todos los pronósticos disponibles según el rango de fechas.
+    {% else %}
+    Próximos partidos con pronóstico calculado.
+    {% endif %}
 </p>
 
-<table class="compact">
-    <thead>
-        <tr>
-            <th>Fecha</th>
-            <th>Comp.</th>
-            <th>Partido</th>
-            <th class="text-center">1</th>
-            <th class="text-center">X</th>
-            <th class="text-center">2</th>
-            <th>Tipo</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for f in forecasts %}
-        <tr>
-            <td class="nowrap small">{{ f.match.utc_date|date:"d/m H:i" }}</td>
-            <td>
-                <a href="{% url 'competitions:detail' f.match.competition.code %}">{{ f.match.competition.code }}</a>
-            </td>
-            <td>
-                <a href="{% url 'forecasts:detail' f.pk %}">
-                    {{ f.match.home_team.name }} vs {{ f.match.away_team.name }}
-                </a>
-            </td>
-            <td class="text-center monospace{% if f.prob_home_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_home_win 1 100 %}% <span class="text-muted small">{{ f.prob_home_win|fair_odds }}</span></td>
-            <td class="text-center monospace{% if f.prob_draw >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_draw 1 100 %}% <span class="text-muted small">{{ f.prob_draw|fair_odds }}</span></td>
-            <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}% <span class="text-muted small">{{ f.prob_away_win|fair_odds }}</span></td>
-            <td>
-                {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
-                {% if f.pending_prior_match %}<span class="badge badge-info small" title="Un equipo tiene un partido previo pendiente; el pronóstico se actualizará al finalizar">Previo</span>{% endif %}
-            </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="7" class="text-muted">Sin pronósticos próximos.</td></tr>
-        {% endfor %}
-    </tbody>
-</table>
+<form method="get" class="mb-1">
+    <div class="grid">
+        <label>
+            Estado
+            <select name="status">
+                {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if value == selected_status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Competición
+            <select name="competition">
+                <option value="">Todas</option>
+                {% for code, name in competitions %}
+                <option value="{{ code }}" {% if code == selected_competition %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Temporada
+            <select name="season">
+                <option value="">Todas</option>
+                {% for s in seasons %}
+                <option value="{{ s }}" {% if s == selected_season %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Jornada
+            <select name="matchday">
+                <option value="">Todas</option>
+                {% for md in matchdays %}
+                <option value="{{ md }}" {% if md|stringformat:"s" == selected_matchday %}selected{% endif %}>J{{ md }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            Desde
+            <input type="date" name="from" value="{{ selected_from }}">
+        </label>
+        <label>
+            Hasta
+            <input type="date" name="to" value="{{ selected_to }}">
+        </label>
+        <label>
+            Día exacto
+            <input type="date" name="date" value="{{ selected_date }}">
+        </label>
+    </div>
+    <div class="grid">
+        <label>
+            <input type="checkbox" name="fallback" value="1" {% if fallback_only == "1" %}checked{% endif %}>
+            Solo fallback
+        </label>
+    </div>
+    <button type="submit">Filtrar</button>
+    <a href="{% url 'forecasts:list' %}" class="button secondary">Limpiar</a>
+</form>
+
+<p class="small text-muted">
+    {{ forecasts|length }} pronóstico(s) · Límite 200 ·
+    {% if selected_status == "finished" %}
+    orden: más reciente primero
+    {% else %}
+    orden: más cercano en fecha primero
+    {% endif %}
+</p>
+
+{% if forecasts_grouped %}
+    {% for day, day_forecasts in forecasts_grouped.items %}
+    <h3 class="day-header">{{ day|date:"l d/m/Y" }}</h3>
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Hora</th>
+                <th>Comp.</th>
+                <th>Partido</th>
+                <th class="text-center">1</th>
+                <th class="text-center">X</th>
+                <th class="text-center">2</th>
+                <th>Tipo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in day_forecasts %}
+            <tr>
+                <td class="nowrap small">{{ f.match.utc_date|date:"H:i" }}</td>
+                <td>
+                    <a href="{% url 'competitions:detail' f.match.competition.code %}">{{ f.match.competition.code }}</a>
+                </td>
+                <td>
+                    <a href="{% url 'forecasts:detail' f.pk %}">
+                        {{ f.match.home_team.name }} vs {{ f.match.away_team.name }}
+                    </a>
+                </td>
+                <td class="text-center monospace{% if f.prob_home_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_home_win 1 100 %}% <span class="text-muted small">{{ f.prob_home_win|fair_odds }}</span></td>
+                <td class="text-center monospace{% if f.prob_draw >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_draw 1 100 %}% <span class="text-muted small">{{ f.prob_draw|fair_odds }}</span></td>
+                <td class="text-center monospace{% if f.prob_away_win >= 0.58 %} prob-high{% endif %}">{% widthratio f.prob_away_win 1 100 %}% <span class="text-muted small">{{ f.prob_away_win|fair_odds }}</span></td>
+                <td>
+                    {% if f.is_fallback %}<span class="badge badge-warning small">Fallback</span>{% else %}<span class="badge small">Completo</span>{% endif %}
+                    {% if f.pending_prior_match %}<span class="badge badge-info small" title="Un equipo tiene un partido previo pendiente; el pronóstico se actualizará al finalizar">Previo</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endfor %}
+{% else %}
+<p class="text-muted">Sin pronósticos para los filtros seleccionados.</p>
+{% endif %}
 {% endblock %}

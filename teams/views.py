@@ -12,19 +12,46 @@ from teams.models import Competition, Team, TeamCompetition
 from elo.models import EloLog
 
 
-def _available_seasons(competition):
-    """Retorna seasons ordenadas descendente para una competición."""
-    tc_seasons = set(
-        TeamCompetition.objects.filter(competition=competition)
-        .values_list("season", flat=True)
-        .distinct()
-    )
+def _available_seasons(competition_code=None):
+    """Temporadas con vínculos TeamCompetition o partidos, ordenadas desc.
+
+    Opcionalmente acota por competición (cuando se filtra el listado).
+    """
+    tc_qs = TeamCompetition.objects
+    if competition_code:
+        tc_qs = tc_qs.filter(competition__code=competition_code)
+    tc_seasons = set(tc_qs.values_list("season", flat=True).distinct())
+
+    match_qs = Match.objects
+    if competition_code:
+        match_qs = match_qs.filter(competition__code=competition_code)
     match_seasons = set(
-        Match.objects.filter(competition=competition)
-        .values_list("season", flat=True)
-        .distinct()
+        match_qs.exclude(season="").values_list("season", flat=True).distinct()
     )
+
     return sorted(tc_seasons | match_seasons, reverse=True)
+
+
+def _available_countries():
+    """Países distintos con equipos, ordenados alfabéticamente."""
+    return list(
+        Team.objects
+        .exclude(country="")
+        .values_list("country", flat=True)
+        .distinct()
+        .order_by("country")
+    )
+
+
+def _available_competitions():
+    """Competiciones que tienen vínculo TeamCompetition, ordenadas."""
+    return list(
+        Competition.objects
+        .filter(team_links__isnull=False)
+        .distinct()
+        .order_by("name")
+        .values_list("code", "name")
+    )
 
 
 def competition_list(request):
@@ -97,19 +124,69 @@ def competition_detail(request, code, season=None):
 
 
 def team_list(request):
-    """Ranking global de equipos ordenado por Elo."""
+    """Ranking global de equipos filtrable.
+
+    Filtros soportados (todos opcionales vía GET):
+
+    - q:substring en name o tla.
+    - competition:código de competición (filtra vía TeamCompetition).
+    - season:string de temporada (requiere competition para tener sentido,
+      pero se permite suelta).
+    - country:país exacto.
+    - min_elo / max_elo:rango Elo inclusivo.
+
+    El orden sigue siendo por -elo, name (ranking global).
+    """
     q = request.GET.get("q", "").strip()
+    competition_code = request.GET.get("competition", "").strip()
+    season = request.GET.get("season", "").strip()
+    country = request.GET.get("country", "").strip()
+    min_elo = request.GET.get("min_elo", "").strip()
+    max_elo = request.GET.get("max_elo", "").strip()
+
     teams = Team.objects.all()
+
     if q:
-        teams = teams.filter(
-            Q(name__icontains=q)
-            | Q(tla__icontains=q)
-        )
+        teams = teams.filter(Q(name__icontains=q) | Q(tla__icontains=q))
+    if competition_code or season:
+        tc_qs = TeamCompetition.objects
+        if competition_code:
+            tc_qs = tc_qs.filter(competition__code=competition_code)
+        if season:
+            tc_qs = tc_qs.filter(season=season)
+        team_ids = tc_qs.values_list("team_id", flat=True)
+        teams = teams.filter(id__in=team_ids)
+    if country:
+        teams = teams.filter(country=country)
+    if min_elo:
+        try:
+            teams = teams.filter(elo__gte=float(min_elo))
+        except ValueError:
+            pass
+    if max_elo:
+        try:
+            teams = teams.filter(elo__lte=float(max_elo))
+        except ValueError:
+            pass
+
     teams = teams.order_by("-elo", "name")
+
+    context = {
+        "teams": teams,
+        "q": q,
+        "competitions": _available_competitions(),
+        "seasons": _available_seasons(competition_code),
+        "countries": _available_countries(),
+        "selected_competition": competition_code,
+        "selected_season": season,
+        "selected_country": country,
+        "selected_min_elo": min_elo,
+        "selected_max_elo": max_elo,
+    }
     return render(
         request,
         "teams/team_list.html",
-        {"teams": teams, "q": q},
+        context,
     )
 
 
@@ -124,6 +201,32 @@ def _form_label(team, match):
     if gf < ga:
         return "L"
     return "D"
+
+
+def _team_neighbors(team):
+    """Devuelve (prev, next) por orden de Elo global.
+
+    "Anterior" = equipo inmediatamente peor en Elo (elo < team.elo,
+    ordenado desc y .first()).
+    "Siguiente" = equipo inmediatamente mejor (elo > team.elo,
+    ordenado asc y .first()).
+    Coincide con la navegación natural del ranking por Elo.
+    """
+    prev_team = (
+        Team.objects
+        .filter(elo__lt=team.elo)
+        .exclude(pk=team.pk)
+        .order_by("-elo", "name")
+        .first()
+    )
+    next_team = (
+        Team.objects
+        .filter(elo__gt=team.elo)
+        .exclude(pk=team.pk)
+        .order_by("elo", "name")
+        .first()
+    )
+    return prev_team, next_team
 
 
 def team_detail(request, pk):
@@ -149,6 +252,8 @@ def team_detail(request, pk):
         .order_by("-created_at")[:10]
     )
 
+    prev_team, next_team = _team_neighbors(team)
+
     return render(
         request,
         "teams/team_detail.html",
@@ -165,5 +270,7 @@ def team_detail(request, pk):
             "form_labels": form_labels,
             "competitions": competitions,
             "elo_logs": elo_logs,
+            "prev_team": prev_team,
+            "next_team": next_team,
         },
     )

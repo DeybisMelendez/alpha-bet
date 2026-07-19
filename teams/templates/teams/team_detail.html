@@ -10,6 +10,19 @@
         {{ team.name }}
     </h1>
     {% if team.tla %}<p class="text-muted">{{ team.tla }}</p>{% endif %}
+    <nav class="detail-nav">
+        {% if prev_team %}
+        <a href="{% url 'teams:detail' prev_team.pk %}" title="{{ prev_team.name }} · Elo {{ prev_team.elo|floatformat:0 }}">‹ Anterior</a>
+        {% else %}
+        <span class="text-muted small">‹ Anterior</span>
+        {% endif %}
+        <a href="{% url 'teams:list' %}">Volver al listado</a>
+        {% if next_team %}
+        <a href="{% url 'teams:detail' next_team.pk %}" title="{{ next_team.name }} · Elo {{ next_team.elo|floatformat:0 }}">Siguiente ›</a>
+        {% else %}
+        <span class="text-muted small">Siguiente ›</span>
+        {% endif %}
+    </nav>
 </header>
 
 <div class="kpi-grid mb-2">

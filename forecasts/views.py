@@ -1,3 +1,6 @@
+from collections import OrderedDict
+from itertools import groupby
+
 from django.conf import settings
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -13,6 +16,21 @@ from forecasts.engine import (
 from forecasts.forms import ForecastCalculateForm
 from forecasts.models import Forecast
 from matches.models import Match
+from teams.models import Competition
+
+# Filtros de status del listado de pronósticos.
+# - upcoming:.programados con hora confirmada o pendientes de fecha (futuros).
+# - finished:partidos finalizados o adjudicados (passados, para auditar).
+# - all:sin filtro de status (respeta rango de fechas si vino).
+FORECAST_STATUS_CHOICES = (
+    ("upcoming", "Próximos"),
+    ("finished", "Finalizados"),
+    ("all", "Todos"),
+)
+
+# Límite del listado. Suficiente para una ventana semanal/mensual sin
+# paginación real; si crece se añadirá Paginator.
+FORECAST_LIST_LIMIT = 200
 
 
 def _build_matrix_context(xg_home, xg_away):
@@ -68,31 +86,149 @@ def _build_matrix_context(xg_home, xg_away):
     }
 
 
-def forecast_list(request):
-    """Listado de pronósticos de partidos próximos (programados)."""
-    today = timezone.localdate()
-    qs = (
+def _parse_date(value):
+    """Parsea YYYY-MM-DD devolviendo date o None si está vacío/inválido."""
+    if not value:
+        return None
+    try:
+        return timezone.datetime.strptime(value.strip(), "%Y-%m-%d").date()
+    except (ValueError, AttributeError):
+        return None
+
+
+def _available_seasons():
+    """Temporadas con pronósticos, ordenadas descendente."""
+    return list(
         Forecast.objects
-        .select_related(
-            "match__competition",
-            "match__home_team",
-            "match__away_team",
-        )
-        .filter(
+        .values_list("match__season", flat=True)
+        .distinct()
+        .order_by("-match__season")
+    )
+
+
+def _available_matchdays(competition_code=None, season=None):
+    """Jornadas (matchday) disponibles, ordenadas ascendente.
+
+    Opcionalmente acota por competición y/o temporada para no llenar
+    el select con jornadas de otras ligas.
+    """
+    qs = Forecast.objects.exclude(match__matchday__isnull=True)
+    if competition_code:
+        qs = qs.filter(match__competition__code=competition_code)
+    if season:
+        qs = qs.filter(match__season=season)
+    return list(
+        qs.values_list("match__matchday", flat=True)
+        .distinct()
+        .order_by("match__matchday")
+    )
+
+
+def forecast_list(request):
+    """Listado de pronósticos filtrable y agrupado por día.
+
+    Filtros soportados (todos opcionales vía GET):
+
+    - status:upcoming (default) | finished | all.
+    - competition:código de competición (eq. PL).
+    - season:string de temporada (eq. 2024).
+    - matchday:int (jornada de liga).
+    - date:YYYY-MM-DD (solo partidos de ese día).
+    - from / to:YYYY-MM-DD (rango inclusivo por fecha local).
+    - fallback:1 (solo pronósticos fallback).
+
+    La agrupación por día se construye en Python ( OrderedDict ) para
+    no depender de regroup en template y conservar el orden de la query.
+    """
+    today = timezone.localdate()
+
+    status = request.GET.get("status", "upcoming").strip() or "upcoming"
+    if status not in dict(FORECAST_STATUS_CHOICES):
+        status = "upcoming"
+    competition_code = request.GET.get("competition", "").strip()
+    season = request.GET.get("season", "").strip()
+    matchday = request.GET.get("matchday", "").strip()
+    date_value = request.GET.get("date", "").strip()
+    from_value = request.GET.get("from", "").strip()
+    to_value = request.GET.get("to", "").strip()
+    fallback_only = request.GET.get("fallback", "").strip()
+
+    qs = Forecast.objects.select_related(
+        "match__competition",
+        "match__home_team",
+        "match__away_team",
+    )
+
+    # Filtro por status. "all" no aplica nada y deja el rango de fechas
+    # decidir el alcance (necesario porque ordenar asc/dsc depende).
+    if status == "upcoming":
+        qs = qs.filter(
             match__status__in=[Match.Status.SCHEDULED, Match.Status.TIMED],
             match__utc_date__date__gte=today,
         )
-        .order_by("match__utc_date")
-    )
-    fallback_only = request.GET.get("fallback", "").strip()
+        qs = qs.order_by("match__utc_date")
+    elif status == "finished":
+        qs = qs.filter(match__status__in=[Match.Status.FINISHED, Match.Status.AWARDED])
+        qs = qs.order_by("-match__utc_date")
+    else:  # all
+        qs = qs.order_by("match__utc_date")
+
+    if competition_code:
+        qs = qs.filter(match__competition__code=competition_code)
+    if season:
+        qs = qs.filter(match__season=season)
+    if matchday:
+        try:
+            qs = qs.filter(match__matchday=int(matchday))
+        except ValueError:
+            pass
+
+    date_d = _parse_date(date_value)
+    if date_d:
+        qs = qs.filter(match__utc_date__date=date_d)
+    from_d = _parse_date(from_value)
+    if from_d:
+        qs = qs.filter(match__utc_date__date__gte=from_d)
+    to_d = _parse_date(to_value)
+    if to_d:
+        qs = qs.filter(match__utc_date__date__lte=to_d)
+
     if fallback_only == "1":
         qs = qs.filter(is_fallback=True)
 
-    forecasts = qs[:100]
+    forecasts = list(qs[:FORECAST_LIST_LIMIT])
+
+    # Agrupación por día (fecha local del partido).
+    forecasts_grouped = OrderedDict()
+    for f in forecasts:
+        day = timezone.localtime(f.match.utc_date).date()
+        forecasts_grouped.setdefault(day, []).append(f)
+
+    competitions = (
+        Competition.objects.order_by("name").values_list("code", "name")
+    )
+
+    context = {
+        "forecasts": forecasts,
+        "forecasts_grouped": forecasts_grouped,
+        "competitions": list(competitions),
+        "seasons": _available_seasons(),
+        "matchdays": _available_matchdays(competition_code, season),
+        "status_choices": FORECAST_STATUS_CHOICES,
+        "selected_status": status,
+        "selected_competition": competition_code,
+        "selected_season": season,
+        "selected_matchday": matchday,
+        "selected_date": date_value,
+        "selected_from": from_value,
+        "selected_to": to_value,
+        "fallback_only": fallback_only,
+        "today": today.isoformat(),
+    }
     return render(
         request,
         "forecasts/forecast_list.html",
-        {"forecasts": forecasts, "fallback_only": fallback_only},
+        context,
     )
 
 
@@ -107,6 +243,35 @@ def _recent_matches_for_team(team, n=5):
         "away_goals": m.away_goals,
         "competition": m.competition,
     } for m in matches]
+
+
+def _forecast_neighbors(forecast):
+    """Devuelve (prev, next) por orden cronológico global.
+
+    "Anterior" = pronóstico del partido más cercano ANTES en fecha.
+    "Siguiente" = pronóstico del partido más cercano DESPUÉS en fecha.
+
+    Solo considera otros Forecast existentes (no importa la competición
+    ni el estado), como el usuario decidió en el plan.
+    """
+    base_qs = Forecast.objects.exclude(pk=forecast.pk).select_related(
+        "match__competition",
+        "match__home_team",
+        "match__away_team",
+    )
+    prev_forecast = (
+        base_qs
+        .filter(match__utc_date__lt=forecast.match.utc_date)
+        .order_by("-match__utc_date")
+        .first()
+    )
+    next_forecast = (
+        base_qs
+        .filter(match__utc_date__gt=forecast.match.utc_date)
+        .order_by("match__utc_date")
+        .first()
+    )
+    return prev_forecast, next_forecast
 
 
 def forecast_detail(request, pk):
@@ -127,10 +292,14 @@ def forecast_detail(request, pk):
     recent_home = _recent_matches_for_team(forecast.match.home_team, n=5)
     recent_away = _recent_matches_for_team(forecast.match.away_team, n=5)
 
+    prev_forecast, next_forecast = _forecast_neighbors(forecast)
+
     context = {
         "forecast": forecast,
         "recent_home": recent_home,
         "recent_away": recent_away,
+        "prev_forecast": prev_forecast,
+        "next_forecast": next_forecast,
         **matrix_ctx,
     }
     return render(request, "forecasts/forecast_detail.html", context)

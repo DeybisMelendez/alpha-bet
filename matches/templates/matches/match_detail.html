@@ -16,6 +16,20 @@
     {{ match.utc_date|date:"l d F Y H:i" }} · <span class="badge">{{ match.get_status_display }}</span>
 </p>
 
+<nav class="detail-nav mb-1">
+    {% if prev_match %}
+    <a href="{% url 'matches:detail' prev_match.pk %}" title="{{ prev_match.home_team.name }} vs {{ prev_match.away_team.name }} · {{ prev_match.utc_date|date:'d/m/Y H:i' }}">‹ Anterior</a>
+    {% else %}
+    <span class="text-muted small">‹ Anterior</span>
+    {% endif %}
+    <a href="{% url 'matches:list' %}">Volver al listado</a>
+    {% if next_match %}
+    <a href="{% url 'matches:detail' next_match.pk %}" title="{{ next_match.home_team.name }} vs {{ next_match.away_team.name }} · {{ next_match.utc_date|date:'d/m/Y H:i' }}">Siguiente ›</a>
+    {% else %}
+    <span class="text-muted small">Siguiente ›</span>
+    {% endif %}
+</nav>
+
 <section class="mb-2">
     <h2>Resultado</h2>
     {% if match.has_result %}

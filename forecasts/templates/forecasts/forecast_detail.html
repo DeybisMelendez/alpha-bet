@@ -18,6 +18,20 @@
     {% if forecast.pending_prior_match %}· <span class="badge badge-info small">Previo pendiente</span>{% endif %}
 </p>
 
+<nav class="detail-nav mb-1">
+    {% if prev_forecast %}
+    <a href="{% url 'forecasts:detail' prev_forecast.pk %}" title="{{ prev_forecast.match.home_team.name }} vs {{ prev_forecast.match.away_team.name }} · {{ prev_forecast.match.utc_date|date:'d/m/Y H:i' }}">‹ Anterior</a>
+    {% else %}
+    <span class="text-muted small">‹ Anterior</span>
+    {% endif %}
+    <a href="{% url 'forecasts:list' %}">Volver al listado</a>
+    {% if next_forecast %}
+    <a href="{% url 'forecasts:detail' next_forecast.pk %}" title="{{ next_forecast.match.home_team.name }} vs {{ next_forecast.match.away_team.name }} · {{ next_forecast.match.utc_date|date:'d/m/Y H:i' }}">Siguiente ›</a>
+    {% else %}
+    <span class="text-muted small">Siguiente ›</span>
+    {% endif %}
+</nav>
+
 {% if forecast.pending_prior_match %}
 <article class="notice mb-1">
     <p class="small">

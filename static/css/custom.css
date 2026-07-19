@@ -149,3 +149,34 @@ table.compact td, table.compact th { padding: .4rem .5rem; }
 .form-W { color: #16a34a; font-weight: bold; }
 .form-L { color: #dc2626; font-weight: bold; }
 .form-D { color: var(--pico-muted-color); font-weight: bold; }
+
+/* ===== Cabecera de día (listados agrupados por día) ===== */
+.day-header {
+    margin-top: 1.5rem;
+    margin-bottom: .5rem;
+    padding-bottom: .25rem;
+    border-bottom: 1px solid var(--pico-border-color);
+    color: var(--pico-muted-color);
+    font-size: 1rem;
+    text-transform: capitalize;
+}
+.day-header:first-of-type { margin-top: .5rem; }
+
+/* ===== Navegación anterior/siguiente (vistas de detalle) ===== */
+.detail-nav {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.detail-nav a {
+    text-decoration: none;
+    padding: .2rem .6rem;
+    border: 1px solid var(--pico-border-color);
+    border-radius: 999px;
+    font-size: .85rem;
+}
+.detail-nav a:hover {
+    border-color: var(--pico-primary);
+    color: var(--pico-primary);
+}
