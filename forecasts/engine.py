@@ -72,24 +72,34 @@ def _opponent_elo_at_match(team, match):
 # Consultas de historial.
 # ---------------------------------------------------------------------------
 
-def _finished_qs(team):
-    return Match.objects.filter(
+def _finished_qs(team, ref_date=None):
+    # ref_date permite acotar el historial a partidos anteriores a una
+    # fecha dada. Es esencial para pronósticos retrospectivos (partidos
+    # finalizados sin Forecast previo): sin este tope, el motor usaría
+    # partidos posteriores al partido a pronosticar y la "predicción"
+    # estaría contaminada con información del futuro. Para pronósticos
+    # en tiempo real (match still scheduled), ref_date es None y el
+    # comportamiento es idéntico al anterior (sin filtro de fecha).
+    qs = Match.objects.filter(
         Q(home_team=team) | Q(away_team=team),
         status=Match.Status.FINISHED,
         home_goals__isnull=False,
         away_goals__isnull=False,
         elo_processed=True,
     ).order_by("-utc_date")
+    if ref_date is not None:
+        qs = qs.filter(utc_date__lte=ref_date)
+    return qs
 
 
-def recent_finished_matches(team, n=None):
+def recent_finished_matches(team, n=None, ref_date=None):
     if n is None:
         n = settings.FORECAST_FORM_LONG
-    return _finished_qs(team)[:n]
+    return _finished_qs(team, ref_date=ref_date)[:n]
 
 
-def _venue_matches(team, venue, limit):
-    qs = _finished_qs(team)
+def _venue_matches(team, venue, limit, ref_date=None):
+    qs = _finished_qs(team, ref_date=ref_date)
     if venue == "home":
         qs = qs.filter(home_team=team)
     elif venue == "away":
@@ -97,21 +107,29 @@ def _venue_matches(team, venue, limit):
     return list(qs[:limit]) if limit else list(qs)
 
 
-def last_match_date(team):
+def last_match_date(team, ref_date=None):
     """Fecha del partido finalizado más reciente del equipo (o None)."""
-    m = _finished_qs(team).first()
+    m = _finished_qs(team, ref_date=ref_date).first()
     return m.utc_date if m else None
 
 
-def is_form_stale(team, max_months=None, now=None, last_date=None):
+def is_form_stale(team, max_months=None, now=None, last_date=None, ref_date=None):
     """True si el último partido finalizado del equipo es más antiguo que
     FORECAST_STALE_MONTHS. La forma reciente no es representativa y el
-    pronóstico usa fallback Elo-only."""
+    pronóstico usa fallback Elo-only.
+
+    ref_date se usa como `now` si no se pasa `now` explícito: para
+    pronósticos retrospectivos, la antigüedad debe medirse respecto al
+    partido a pronosticar, no respecto al momento de cálculo (de lo
+    contrario todo partido histórico cumpliría stale=True).
+    """
     if max_months is None:
         max_months = getattr(settings, "FORECAST_STALE_MONTHS", 6)
     if now is None:
-        now = timezone.now()
-    last = last_date if last_date is not None else last_match_date(team)
+        now = ref_date if ref_date is not None else timezone.now()
+    last = last_date if last_date is not None else last_match_date(
+        team, ref_date=ref_date
+    )
     if last is None:
         return True
     age_days = (now - last).days
@@ -172,13 +190,18 @@ def attack_defense_ratings(team, ref_date=None):
     o visitante) con ponderación temporal exponencial. Si no hay muestra
     suficiente en alguna condición, los ratings devuelven 0.0: el
     llamador gestiona el fallback a Elo-only.
+
+    ref_date acota el historial a partidos anteriores a esa fecha
+    (clave para pronósticos retrospectivos). Si es None, no se filtra
+    (comportamiento histórico, usado en pronósticos en tiempo real con
+    ref_date=now implícito).
     """
     if ref_date is None:
         ref_date = timezone.now()
 
     venue_limit = settings.FORECAST_FORM_LONG * 2
-    home_matches = _venue_matches(team, "home", venue_limit)
-    away_matches = _venue_matches(team, "away", venue_limit)
+    home_matches = _venue_matches(team, "home", venue_limit, ref_date=ref_date)
+    away_matches = _venue_matches(team, "away", venue_limit, ref_date=ref_date)
 
     min_venue = settings.FORECAST_MIN_VENUE_HISTORY
 
@@ -273,8 +296,8 @@ def recent_form_factor(team, ref_date=None):
         # ratio≈1 → forma esperada. >1 mejor, <1 peor. Clamp al impacto.
         return max(1.0 - impact, min(1.0 + impact, 1.0 + (ratio - 1.0) * impact))
 
-    short_m = list(_finished_qs(team)[: settings.FORECAST_FORM_SHORT])
-    long_m = list(_finished_qs(team)[: settings.FORECAST_FORM_LONG])
+    short_m = list(_finished_qs(team, ref_date=ref_date)[: settings.FORECAST_FORM_SHORT])
+    long_m = list(_finished_qs(team, ref_date=ref_date)[: settings.FORECAST_FORM_LONG])
     form_short = _ratio(short_m)
     form_long = _ratio(long_m)
     return (
@@ -386,19 +409,28 @@ def expected_goals_from_ratings(
     return _clamp_lambda(xg_home), _clamp_lambda(xg_away)
 
 
-def expected_goals_elo_only(home, away, home_advantage=None, is_neutral=False):
+def expected_goals_elo_only(home, away, home_advantage=None, is_neutral=False,
+                            home_elo=None, away_elo=None):
     """Fallback basado solo en diferencia Elo (historial insuficiente).
 
     Se usa cuando algún equipo no tiene muestra suficiente (<
     FORECAST_MIN_HISTORY). Sin ratings de ataque/defensa, se estima un
     λ baseline (1.35) desplazado por la diferencia Elo de forma suave.
+
+    home_elo/away_elo opcionales permiten inyectar el Elo previo al
+    partido (match.home_elo_before) en pronósticos retrospectivos,
+    evitando fugas de información del resultado. Si son None, se usa
+    el Elo actual de los equipos (comportamiento histórico, para
+    pronósticos en tiempo real).
     """
     if home_advantage is None:
         home_advantage = settings.ELO_HOME_ADVANTAGE
     if is_neutral:
         home_advantage = 0
     baseline = settings.FORECAST_FALLBACK_BASELINE
-    diff = (home.elo + home_advantage) - away.elo
+    h_elo = home_elo if home_elo is not None else home.elo
+    a_elo = away_elo if away_elo is not None else away.elo
+    diff = (h_elo + home_advantage) - a_elo
 
     factor_home = _elo_factor(diff)
     factor_away = _elo_factor(-diff)
@@ -615,18 +647,18 @@ def _form_summary(team):
     }
 
 
-def team_history_count(team):
+def team_history_count(team, ref_date=None):
     # Solo se cuentan partidos con Elo procesado: la forma reciente usa
     # elo_before para ajustar goles por dificultad del rival, por lo que
     # los partidos sin procesar no son utilizables por el modelo completo.
-    return _finished_qs(team).count()
+    return _finished_qs(team, ref_date=ref_date).count()
 
 
 def _has_venue_history(team, ref_date=None):
     """Comprueba si el equipo tiene historial suficiente por condición."""
     min_venue = settings.FORECAST_MIN_VENUE_HISTORY
-    home_ok = _venue_matches(team, "home", min_venue)
-    away_ok = _venue_matches(team, "away", min_venue)
+    home_ok = _venue_matches(team, "home", min_venue, ref_date=ref_date)
+    away_ok = _venue_matches(team, "away", min_venue, ref_date=ref_date)
     return len(home_ok) >= min_venue and len(away_ok) >= min_venue
 
 
@@ -650,9 +682,9 @@ def _team_form_data(team, cache=None, ref_date=None):
     if ref_date is None:
         ref_date = timezone.now()
 
-    history_count = team_history_count(team)
-    last_date = last_match_date(team)
-    stale = is_form_stale(team, last_date=last_date)
+    history_count = team_history_count(team, ref_date=ref_date)
+    last_date = last_match_date(team, ref_date=ref_date)
+    stale = is_form_stale(team, last_date=last_date, ref_date=ref_date)
     has_venue = _has_venue_history(team, ref_date=ref_date)
     atk_home, atk_away, def_home, def_away = attack_defense_ratings(
         team, ref_date=ref_date
@@ -682,6 +714,23 @@ def _home_advantage_for(match):
     if comp is None or match.is_neutral:
         return 0 if match.is_neutral else settings.ELO_HOME_ADVANTAGE
     return comp.home_advantage
+
+
+def _elo_to_use(team, match):
+    """Elo con el que el equipo entró al partido, si existe snapshot.
+
+    Para pronósticos en tiempo real (match SCHEDULED) no hay
+    home_elo_before/away_elo_before todavía, así que se usa el Elo
+    actual (team.elo). Para pronósticos retrospectivos (match ya
+    finalizado y con Elo procesado) los snapshots existen y reflejan
+    la fuerza justo antes del partido: usarlos evita fugas de
+    información del resultado del propio partido.
+    """
+    if team == match.home_team and match.home_elo_before is not None:
+        return match.home_elo_before
+    if team == match.away_team and match.away_elo_before is not None:
+        return match.away_elo_before
+    return team.elo
 
 
 def _has_pending_prior_match(team, ref_match):
@@ -728,11 +777,21 @@ def generate_forecast(match, cache=None):
 
     home_adv = _home_advantage_for(match)
 
+    # Elo con el que cada equipo entró al partido. Para partidos ya
+    # finalizados con Elo procesado, los snapshots *_elo_before existen
+    # y deben usarse para evitar fugas de información (docs/xG.md §Ajuste
+    # por dificultad del rival: "utilizar el Elo previo del rival"). Para
+    # partidos programados los snapshots son None y se usa team.elo.
+    home_elo = _elo_to_use(home, match)
+    away_elo = _elo_to_use(away, match)
+
     if is_fallback:
         xg_home, xg_away = expected_goals_elo_only(
             home, away,
             home_advantage=home_adv,
             is_neutral=match.is_neutral,
+            home_elo=home_elo,
+            away_elo=away_elo,
         )
         form_home = {
             "history_count": home_data["history_count"],
@@ -746,10 +805,10 @@ def generate_forecast(match, cache=None):
         }
     else:
         xg_home, xg_away = expected_goals_from_ratings(
-            home.elo,
+            home_elo,
             home_data["attack_home"],
             home_data["defense_home"],
-            away.elo,
+            away_elo,
             away_data["attack_away"],
             away_data["defense_away"],
             home_advantage=home_adv,

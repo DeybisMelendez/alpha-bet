@@ -32,6 +32,7 @@ python manage.py <command>
 | `regress_elo <season> [--dry-run] [--regress-factor F] [--league-weight W]` | Regresión Elo entre temporadas (`0.90·Elo + 0.10·EloLiga`); idempotente vía `Team.last_regressed_season`. |
 | `generate_forecasts [--days N] [--limit N]` | Genera pronósticos de partidos programados en ventana. |
 | `prune_future_forecasts [--days N] [--dry-run]` | Poda pronósticos/partidos programados fuera de ventana. |
+| `backfill_forecasts [--competition CODE] [--season YYYY] [--from YYYY-MM-DD --to YYYY-MM-DD] [--limit N] [--dry-run]` | Genera pronósticos retros de partidos finalizados sin Forecast (no sobrescribe existentes). Usa Elo previo y tope de historial por fecha para evitar fugas de información. |
 
 ## Daily Update
 
