@@ -46,13 +46,15 @@ football-data.org (v4 plan Free)
         validation/services.py:evaluate_match
                  │
                  ▼
-        ForecastEvaluation (1:1 con Match)
+ForecastEvaluation (1:1 con Match)
                  │
                  ▼
-        CalibrationBin (snapshot global)
+         CalibrationSnapshot (histórico, KPIs + bins)
                  │
                  ▼
-        Vista /validation/  (Pico CSS: KPIs + tabla de calibración)
+         Vista /validation/  (KPIs + tabla de calibración)
+                 ▼
+         Vista /validation/evolution/  (serie temporal de snapshots)
 ```
 
 Caja negra → caja blanca: los datos crudos se importan una sola vez, todo el
@@ -239,21 +241,48 @@ Implementación: `compute_calibration_rows` en
 `validation/metrics.py:137` + `refresh_calibration_bins` en
 `validation/services.py:140`.
 
+## Modelo `CalibrationSnapshot`
+
+`CalibrationSnapshot` (`validation/models.py:73`) agrupa un refresh
+completo en el tiempo. Cada ejecución de `evaluate_forecasts` (o la fase
+de calibración del `daily_update`) **crea un snapshot nuevo en vez de
+sobrescribir el anterior**, de modo que se pueda seguir la evolución del
+modelo. Volumen despreciable: ~12 snapshots/año × 30 bins (≈ 360
+filas/año); no se purgan.
+
+Campos:
+
+- `snapshot_at` (cuándo se ejecutó el refresh, indexado).
+- `window_from`, `window_to` (rango temporal de las evaluaciones incluidas).
+- `n` (muestras agregadas).
+- KPIs denormalizados: `log_loss_1x2`, `brier_1x2`, `rps_1x2`,
+  `ae_xg_home`, `ae_xg_away`, `ae_total`, `top_score_hit_ratio` (copia de
+  `aggregate_kpis` al momento del snapshot — alimenta la serie temporal
+  sin recalcular).
+- `trigger` (`manual` | `rebuild` | `daily` | `force` | `legacy`).
+- `season`, `competition` (filtros aplicados, nulos en snapshots globales).
+
+**Legacy:** la migración `0002_calibration_snapshot` convierte los
+`CalibrationBin` vigentes bajo el modelo anterior en un snapshot
+`trigger=legacy` con los KPIs agregados del rango, preservando la
+auditoría histórica previa a esta refactorización.
+
 ## Modelo `CalibrationBin`
 
-`CalibrationBin` (`validation/models.py:73`):
+`CalibrationBin` (`validation/models.py:?`): una fila por
+(snapshot, mercado, bin de probabilidad).
 
+- `snapshot` (FK a `CalibrationSnapshot`, `on_delete=CASCADE`,
+  `related_name="bins"`).
 - `market` (`1X2_HOME` | `1X2_DRAW` | `1X2_AWAY`).
 - `bin_start`, `bin_end` (exclusivo, excepto el último = 1.0).
 - `count` (n muestras en el bin).
 - `predicted_avg` (promedio de probabilidad pronosticada en el bin).
 - `observed_freq` (fracción real que ocurrió).
-- `window_from`, `window_to` (rango temporal del snapshot).
 
-**Único snapshot global vigente:** cada `refresh_calibration_bins` hace
-`CalibrationBin.objects.all().delete()` y reinserta. Esto es intencional:
-es una herramienta personal; si necesitaras conservar múltiples ventanas,
-habría que cambiar ese `delete()` por un filtro exacto `window_from/to`.
+`unique_together = ("snapshot", "market", "bin_start")`. Ya no hay
+`window_from/window_to` ni `snapshot_at` (pasan al snapshot padre) ni
+`delete()` en cada refresh.
 
 ## Cómo leer la tabla
 
@@ -272,13 +301,15 @@ columnas:
 ## Cuándo reconstruir
 
 El comando `evaluate_forecasts` reconstruye los bins al final
-(transaccionalmente) salvo `--no-calibration`. Como hay un único snapshot
-global, basta ejecutarlo una vez tras sync para tener la calibración al día.
+(transaccionalmente) salvo `--no-calibration`, **creando un nuevo
+`CalibrationSnapshot`** cada vez (no sobrescribe). Basta ejecutarlo una
+vez tras sync para tener la calibración al día y un nuevo punto en la
+serie histórica de `/validation/evolution/`.
 
 El orquestador `daily_update` automatiza la decisión: tras evaluar nuevos
 finalizados, reconstruye la calibración solo si pasaron
 `CALIBRATION_INTERVAL_DAYS = 30` desde el último snapshot (sentinel
-`CalibrationBin.snapshot_at`), o si se invoca con `--force-calibration`. Un
+`CalibrationSnapshot.snapshot_at`), o si se invoca con `--force-calibration`. Un
 rebuild manual intermedio (`evaluate_forecasts --rebuild`) reinicia el
 contador automáticamente. Esto evita trabajo sin signal diario: con 10k+
 evaluaciones, añadir 5–10 partidos/día mueve los promedios por bin en
@@ -312,7 +343,7 @@ Cuando los KPIs empeoran o se quiere probar una variante del modelo:
    python manage.py evaluate_forecasts --rebuild --from 2023-01-01
    ```
    El `--rebuild` last step reinicia también el sentinel de calibración
-   (`CalibrationBin.snapshot_at`), así que el próximo `daily_update` no
+   (`CalibrationSnapshot.snapshot_at`), así que el próximo `daily_update` no
    re-calibrará hasta dentro de 30 días.
 4. **Compara** contra los KPIs previos (anota los números antes del cambio).
 5. **Itera.** Esto es manual hoy; el backtesting automático está en

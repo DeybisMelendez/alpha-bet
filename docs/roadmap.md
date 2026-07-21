@@ -25,6 +25,9 @@ aquí con su prioridad orientativa.
 | `LeagueStrength` | `elo` | Elo promedio por `competition × season`. |
 | `EloLog` | `elo` | Bitácora de cambios Elo por equipo y partido (`elo_before/elo_after/delta`). |
 | `Forecast` | `forecasts` | Pronóstico principal: `xg_home/away`, mercados 1X2/OU/BTTS/CS/DNB/Double chance, `form_home/away`, `is_fallback`. |
+| `ForecastEvaluation` | `validation` | Métricas 1:1 con `Match` (Log Loss, Brier, RPS, MAE λ, `top_score_hit`). |
+| `CalibrationSnapshot` | `validation` | Snapshot histórico de calibración: KPIs + bins en un momento dado. Serie temporal para seguir la evolución del modelo. |
+| `CalibrationBin` | `validation` | Bin de calibración por (snapshot, mercado, probabilidad). |
 | `ApiResponseCache` | `api_client` | Caché de respuestas de football-data.org. |
 | `BackfillJob` | `api_client` | Cola persistente del backfill histórico. |
 
@@ -108,12 +111,15 @@ sobre partidos finalizados con pronóstico previo.
 - **Calibración por bins de 0.1** (`CalibrationBin`): para cada outcome
   (1/X/2) compara el promedio de probabilidad pronosticada contra la
   frecuencia observada, señalando bins sobreconfiados/subestimados.
-  Único snapshot global vigente (cada refresh reemplaza la tabla).
+  Cada refresh crea un `CalibrationSnapshot` histórico (no sobrescribe
+  el anterior), permitiendo seguir la evolución del modelo.
 - **Comando `evaluate_forecasts`** (`validation/management/commands/`):
   incremental por defecto (solo partidos sin evaluación) o `--rebuild`
   para recalcular un rango. Reconstruye la calibración salvo
   `--no-calibration`.
-- **Vista `/validation/`** con KPIs y tablas de calibración (Pico CSS).
+- **Vistas `/validation/` y `/validation/evolution/`**: KPIs y tabla de
+  calibración del último snapshot; serie temporal de snapshots históricos
+  (Log Loss, Brier, RPS, gap por bin) con Chart.js vía CDN.
 - **Distribución de outcomes reales** para inspección de balance.
 
 Tratamiento de penales: cuentan como empate en 1X2 (coherente con

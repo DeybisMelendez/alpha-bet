@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from validation.models import CalibrationBin, ForecastEvaluation
+from validation.models import CalibrationBin, CalibrationSnapshot, ForecastEvaluation
 
 
 @admin.register(ForecastEvaluation)
@@ -37,17 +37,35 @@ class ForecastEvaluationAdmin(admin.ModelAdmin):
         )
 
 
+@admin.register(CalibrationSnapshot)
+class CalibrationSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        "snapshot_at",
+        "trigger",
+        "n",
+        "log_loss_1x2",
+        "brier_1x2",
+        "rps_1x2",
+        "top_score_hit_ratio",
+        "window_from",
+        "window_to",
+        "season",
+    )
+    list_filter = ("trigger", "season", "competition")
+    date_hierarchy = "snapshot_at"
+    ordering = ("-snapshot_at",)
+
+
 @admin.register(CalibrationBin)
 class CalibrationBinAdmin(admin.ModelAdmin):
     list_display = (
+        "snapshot",
         "market",
         "bin_start",
         "bin_end",
         "count",
         "predicted_avg",
         "observed_freq",
-        "window_from",
-        "window_to",
     )
-    list_filter = ("market",)
+    list_filter = ("market", "snapshot__trigger")
     ordering = ("market", "bin_start")

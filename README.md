@@ -40,7 +40,9 @@ Desarrollado en Django 6.0 + SQLite + Pico CSS.
   misma matriz Poisson (consistencia garantizada).
 - **Valida el modelo** sobre partidos finalizados: materializa métricas
   de precisión (`ForecastEvaluation`) y curvas de calibración
-  (`CalibrationBin`), visibles en `/validation/`.
+  (`CalibrationSnapshot` + `CalibrationBin`), visibles en `/validation/`
+  y en `/validation/evolution/` (serie histórica de snapshots con
+  Chart.js).
 
 El detalle completo del pipeline (qué archivo hace qué) está en
 [`docs/modelo.md`](docs/modelo.md).
@@ -67,10 +69,12 @@ football-data.org (v4 plan Free)
           ForecastEvaluation (1:1 con Match)
                     │
                     ▼
-          CalibrationBin (snapshot global)
+          CalibrationSnapshot (histórico, KPIs + bins)
                     │
                     ▼
           Vista /validation/  (KPIs + tabla de calibración)
+                    ▼
+          Vista /validation/evolution/  (serie temporal de snapshots)
 ```
 
 Diagrama completo y referencias `file:line` en
@@ -198,6 +202,7 @@ Commands.
 | `/forecasts/` | Listado de pronósticos filtrable |
 | `/forecasts/calculate/` | Cálculo manual what-if |
 | `/validation/` | KPIs del modelo + tabla de calibración |
+| `/validation/evolution/` | Serie temporal de snapshots históricos de calibración |
 | `/admin/` | Admin de Django |
 
 ---

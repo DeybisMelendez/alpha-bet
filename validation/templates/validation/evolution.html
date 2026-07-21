@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Evolución del modelo · Alpha Bet{% endblock %}
+
+{% block content %}
+<h1>Evolución del modelo</h1>
+<p class="text-muted">
+    Cada <em>snapshot</em> captura el estado de KPIs y calibración cuando se
+    corrió <code>evaluate_forecasts</code> o <code>daily_update</code>. La serie
+    temporal permite detectar regresiones tras cambios de parámetros (K-factor,
+    ρ Dixon-Coles, decay) o si la calibración se degrada con el tiempo. Total
+    en la base: <strong>{{ total_snapshots }}</strong>; en rango:
+    <strong>{{ snapshots_count }}</strong>.
+</p>
+
+<form method="get" class="mb-1">
+    <div class="grid">
+        <label>
+            Desde (snapshot_at)
+            <input type="date" name="from" value="{{ selected_from }}">
+        </label>
+        <label>
+            Hasta (snapshot_at)
+            <input type="date" name="to" value="{{ selected_to }}">
+        </label>
+        <label>
+            Mercado del gráfico de gaps
+            <select name="gap_market">
+                {% for code, label in markets %}
+                <option value="{{ code }}" {% if code == gap_market_selected %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+    <button type="submit">Filtrar</button>
+</form>
+
+{% if snapshots_count == 0 %}
+<article class="mb-2">
+    <p class="text-muted">
+        Sin snapshots en el rango. Ejecute
+        <code>python manage.py evaluate_forecasts</code>
+        (use <code>--rebuild --from 2023-01-01</code> para un primer snapshot
+        completo).
+    </p>
+</article>
+{% else %}
+
+<h2>KPIs en el tiempo</h2>
+<p class="text-muted small">
+    Línea base de referencia (uniforme 1/3): Log Loss ≈ 1.099, Brier ≈ 0.667,
+    RPS ≈ 0.222. Valores por debajo indican que el modelo aporta información.
+</p>
+<div class="chart-wrap mb-2">
+    <canvas id="kpi-chart" height="160"></canvas>
+</div>
+
+<h2>Evolución del gap por bin ({{ gap_market_selected }})</h2>
+<p class="text-muted small">
+    Cada línea es un bin de probabilidad (0.0 a 0.9). El <em>gap</em> =
+    predicho − observado: gap &gt; 0 (sobreconfiado), gap &lt; 0 (subestimado).
+    Cambie el mercado en el formulario de arriba.
+</p>
+<div class="chart-wrap mb-2">
+    <canvas id="gap-chart" height="160"></canvas>
+</div>
+
+<h2>Detalle del snapshot seleccionado</h2>
+<form method="get" class="mb-1">
+    <input type="hidden" name="from" value="{{ selected_from }}">
+    <input type="hidden" name="to" value="{{ selected_to }}">
+    <input type="hidden" name="gap_market" value="{{ gap_market_selected }}">
+    <label>
+        Snapshot
+        <select name="snapshot" onchange="this.form.submit()">
+            {% for s in snapshots %}
+            <option value="{{ s.id }}" {% if detailed_snapshot and s.id == detailed_snapshot.id %}selected{% endif %}>
+                #{{ s.id }} · {{ s.snapshot_at|date:"Y-m-d H:i" }} · n={{ s.n }} · {{ s.trigger }}
+            </option>
+            {% endfor %}
+        </select>
+    </label>
+    <button type="submit">Ver</button>
+</form>
+
+{% if detailed_snapshot %}
+<article class="mb-2">
+    <p class="text-muted small">
+        Snapshot <strong>#{{ detailed_snapshot.id }}</strong> ·
+        {{ detailed_snapshot.snapshot_at|date:"Y-m-d H:i" }} ·
+        trigger <strong>{{ detailed_snapshot.trigger }}</strong> ·
+        ventana <strong>{{ detailed_snapshot.window_from|date:"Y-m-d" }}</strong> →
+        <strong>{{ detailed_snapshot.window_to|date:"Y-m-d" }}</strong> ·
+        n = <strong>{{ detailed_snapshot.n }}</strong>
+    </p>
+    <div class="kpi-grid mb-1">
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.log_loss_1x2|floatformat:3 }}</h2>
+            <p>Log Loss 1X2</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.brier_1x2|floatformat:3 }}</h2>
+            <p>Brier 1X2</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.rps_1x2|floatformat:3 }}</h2>
+            <p>RPS 1X2</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.ae_xg_home|floatformat:2 }}</h2>
+            <p>MAE λ local</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.ae_xg_away|floatformat:2 }}</h2>
+            <p>MAE λ visitante</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.ae_total|floatformat:2 }}</h2>
+            <p>MAE total λ</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.top_score_hit_ratio|floatformat:2 }}%</h2>
+            <p>Acierto marcador</p>
+        </article>
+        <article class="kpi">
+            <h2>{{ detailed_snapshot.n }}</h2>
+            <p>Muestras</p>
+        </article>
+    </div>
+</article>
+
+{% for group in detailed_bins_groups %}
+<h3>{{ group.label }}</h3>
+{% if group.rows %}
+<div class="overflow-auto">
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>Bin</th>
+                <th class="text-center">Muestras</th>
+                <th class="text-center">Predicho (promedio)</th>
+                <th class="text-center">Observado (frecuencia)</th>
+                <th class="text-center">Gap (predicho − observado)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in group.rows %}
+            <tr>
+                <td class="monospace">[{{ b.bin_start|floatformat:2 }}, {{ b.bin_end|floatformat:2 }})</td>
+                <td class="text-center monospace">{{ b.count }}</td>
+                <td class="text-center monospace">{{ b.predicted_avg|floatformat:3 }}</td>
+                <td class="text-center monospace">{{ b.observed_freq|floatformat:3 }}</td>
+                <td class="text-center monospace
+                    {% if b.count > 0 %}
+                    {% if b.gap > 0.005 %}value-negative
+                    {% elif b.gap < -0.005 %}value-positive
+                    {% endif %}
+                    {% endif %}">
+                    {% if b.count > 0 %}{{ b.gap|floatformat:3 }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-muted small">Sin bins en este snapshot para este mercado.</p>
+{% endif %}
+{% endfor %}
+{% else %}
+<p class="text-muted small">No hay snapshot para detallar.</p>
+{% endif %}
+
+<h2>Historial de snapshots</h2>
+<div class="overflow-auto">
+    <table class="compact">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Trigger</th>
+                <th>Ventana</th>
+                <th>N</th>
+                <th>Log Loss</th>
+                <th>Brier</th>
+                <th>RPS</th>
+                <th>MAE λ total</th>
+                <th>TopScore</th>
+                <th>Detalle</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in snapshots %}
+            <tr>
+                <td class="monospace">{{ s.id }}</td>
+                <td class="monospace nowrap">{{ s.snapshot_at|date:"Y-m-d H:i" }}</td>
+                <td class="monospace">{{ s.trigger }}</td>
+                <td class="monospace small nowrap">
+                    {{ s.window_from|date:"Y-m-d" }} → {{ s.window_to|date:"Y-m-d" }}
+                </td>
+                <td class="text-center monospace">{{ s.n }}</td>
+                <td class="text-center monospace">{{ s.log_loss_1x2|floatformat:3 }}</td>
+                <td class="text-center monospace">{{ s.brier_1x2|floatformat:3 }}</td>
+                <td class="text-center monospace">{{ s.rps_1x2|floatformat:3 }}</td>
+                <td class="text-center monospace">{{ s.ae_total|floatformat:2 }}</td>
+                <td class="text-center monospace">{{ s.top_score_hit_ratio|floatformat:2 }}%</td>
+                <td>
+                    <a href="?from={{ selected_from }}&to={{ selected_to }}&gap_market={{ gap_market_selected }}&snapshot={{ s.id }}">ver</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{{ kpi_series|json_script:"kpi-data" }}
+{{ gap_series|json_script:"gap-data" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="{% static 'validation/evolution.js' %}"></script>
+{% endif %}
+{% endblock %}

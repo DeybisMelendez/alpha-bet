@@ -14,7 +14,7 @@ from validation.metrics import (
     rps_1x2,
     top_score_hit,
 )
-from validation.models import CalibrationBin, ForecastEvaluation
+from validation.models import CalibrationBin, CalibrationSnapshot, ForecastEvaluation
 from validation.selectors import finished_with_forecast_qs
 
 
@@ -138,13 +138,20 @@ def _parse_dt(value):
 
 
 def refresh_calibration_bins(
-    date_from=None, date_to=None, season=None, competition_code=None
-):
-    """Reconstruye los bins de calibración para un rango/filtros.
+    date_from=None,
+    date_to=None,
+    season=None,
+    competition_code=None,
+    trigger=CalibrationSnapshot.Trigger.MANUAL,
+) -> tuple[CalibrationSnapshot, int, datetime, datetime]:
+    """Crea un nuevo CalibrationSnapshot con bins + KPIs agregados.
 
-    Borra los CalibrationBin existentes para esa ventana y los recalcula
-    a partir de las ForecastEvaluation. Una sola llamada transaccional
-    para evitar dejar tabla a medias.
+    No borra snapshots previos: cada ejecución (manual, --rebuild,
+    daily_update) materializa un snapshot histórico nuevo, de modo que
+    la vista /validation/evolution/ pueda seguir la evolución del modelo.
+
+    :param trigger: origen del refresh (manual / rebuild / daily / force).
+    :returns: (snapshot, n_bins, window_from, window_to).
     """
     qs = finished_with_forecast_qs(
         date_from=date_from,
@@ -155,10 +162,7 @@ def refresh_calibration_bins(
     # Acota a partidos con evaluation (debe haberse corrido antes).
     qs = qs.filter(evaluation__isnull=False).select_related("forecast", "evaluation")
 
-    # Bordes temporales para etiquetar los bins (window_from / window_to).
-    # Si la ventana está vacía, tomamos el rango solicitado (o ahora) y no
-    # dejamos bins viejos colgando: cada refresh reemplaza la table entera
-    # (simplificación para tool personal: un único snapshot global vigente).
+    # Bordes temporales para etiquetar el snapshot (window_from / window_to).
     if qs.exists():
         window_from = qs.order_by("utc_date").first().utc_date
         window_to = qs.order_by("-utc_date").first().utc_date
@@ -179,26 +183,55 @@ def refresh_calibration_bins(
             occurred = actual == _OUTCOME_KEYS[market]
             pairs_by_market[market].append((prob, occurred))
 
+    # KPIs agregados sobre las evaluaciones del rango (para denormalizar
+    # en el snapshot y alimentar la serie temporal sin recalcular).
+    eval_qs = ForecastEvaluation.objects.all()
+    if window_from:
+        eval_qs = eval_qs.filter(match__utc_date__gte=window_from)
+    if window_to:
+        eval_qs = eval_qs.filter(match__utc_date__lte=window_to)
+    kpis = aggregate_kpis(eval_qs)
+
+    # Resuelve la competición (para etiquetar snapshots parciales).
+    competition = None
+    if competition_code:
+        from teams.models import Competition
+
+        competition = (
+            Competition.objects.filter(code=competition_code).first()
+            if Competition.objects.filter(code=competition_code).exists()
+            else None
+        )
+
     with transaction.atomic():
-        # Mantenemos un único snapshot global vigente (tool personal):
-        # cada refresh reemplaza la tabla entera. Si se desea conservar
-        # múltiples ventanas simultáneas, cambiar por un filtro exacto
-        # window_from/to como antes.
-        CalibrationBin.objects.all().delete()
+        snapshot = CalibrationSnapshot.objects.create(
+            window_from=window_from,
+            window_to=window_to,
+            n=kpis["n"],
+            log_loss_1x2=kpis["log_loss_1x2"],
+            brier_1x2=kpis["brier_1x2"],
+            rps_1x2=kpis["rps_1x2"],
+            ae_xg_home=kpis["ae_xg_home"],
+            ae_xg_away=kpis["ae_xg_away"],
+            ae_total=kpis["ae_total"],
+            top_score_hit_ratio=kpis["top_score_hit_ratio"],
+            trigger=trigger,
+            season=season or "",
+            competition=competition,
+        )
         new_rows = []
         for market, pairs in pairs_by_market.items():
             for row in compute_calibration_rows(pairs):
                 new_rows.append(
                     CalibrationBin(
+                        snapshot=snapshot,
                         market=market,
                         bin_start=row["bin_start"],
                         bin_end=row["bin_end"],
                         count=row["count"],
                         predicted_avg=row["predicted_avg"],
                         observed_freq=row["observed_freq"],
-                        window_from=window_from,
-                        window_to=window_to,
                     )
                 )
         CalibrationBin.objects.bulk_create(new_rows)
-    return len(new_rows), window_from, window_to
+    return snapshot, len(new_rows), window_from, window_to

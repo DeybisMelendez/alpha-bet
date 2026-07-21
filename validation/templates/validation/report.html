@@ -118,11 +118,18 @@
     contra la frecuencia observada. En calibración ideal ambas columnas
     coinciden; si predicho &gt; observado el modelo está sobreconfiado en
     ese bin.
-    {% if bins_window_from %}
-    Ventana del snapshot:
+    {% if bins_snapshot_at %}
+    Snapshot vigente:
+    <strong>{{ bins_snapshot_at|date:"Y-m-d H:i" }}</strong>
+    (id #{{ bins_snapshot_id }}, trigger {{ bins_snapshot_trigger }})
+    · Ventana:
     <strong>{{ bins_window_from|date:"Y-m-d" }}</strong> →
     <strong>{{ bins_window_to|date:"Y-m-d" }}</strong>
     <span class="text-muted">(independiente del filtro de KPIs)</span>
+    · <a href="{% url 'validation:evolution' %}">Ver evolución histórica →</a>
+    ({{ snapshots_count }} snapshots)
+    {% else %}
+    Sin snapshots. Ejecute <code>python manage.py evaluate_forecasts</code>.
     {% endif %}
 </p>
 
@@ -171,5 +178,7 @@
     Recalcule tras nuevas sincronizaciones con:
     <code>python manage.py evaluate_forecasts</code>
     (use <code>--rebuild --from 2023-01-01</code> para recalcular todo).
+    Cada ejecución materializa un <em>snapshot histórico</em> (ver
+    <a href="{% url 'validation:evolution' %}">evolución</a>).
 </p>
 {% endblock %}

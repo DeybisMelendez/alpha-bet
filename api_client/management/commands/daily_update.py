@@ -139,26 +139,27 @@ class Command(BaseCommand):
             exit(1)
 
     def _run_calibration(self, force=False, errors=None):
-        """Reconstruye CalibrationBin si pasó CALIBRATION_INTERVAL_DAYS
+        """Reconstruye la calibración si pasó CALIBRATION_INTERVAL_DAYS
         desde el último snapshot (o si --force-calibration).
 
-        Usa CalibrationBin.snapshot_at como sentinel: cualquier refresh
-        manual intermedia (evaluate_forecasts --rebuild) reinicia el
-        contador automáticamente.
+        Usa CalibrationSnapshot.snapshot_at como sentinel: cualquier
+        refresh manual intermedio (evaluate_forecasts --rebuild)
+        reinicia el contador automáticamente. Cada refresh crea un
+        nuevo snapshot histórico (no sobrescribe el anterior).
         """
-        from validation.models import CalibrationBin
+        from validation.models import CalibrationSnapshot
         from validation.services import refresh_calibration_bins
 
         self.stdout.write(self.style.MIGRATE_HEADING("\n>> Fase: calibrate"))
         interval = getattr(settings, "CALIBRATION_INTERVAL_DAYS", 30)
         today = timezone.localdate()
 
-        last_snapshot = CalibrationBin.objects.aggregate(last=Max("snapshot_at"))[
-            "last"
-        ]
+        last_at = CalibrationSnapshot.objects.aggregate(
+            last=Max("snapshot_at")
+        )["last"]
 
-        if last_snapshot is not None:
-            last_date = last_snapshot.date()
+        if last_at is not None:
+            last_date = last_at.date()
             next_due = last_date + timedelta(days=interval)
         else:
             last_date = None
@@ -184,12 +185,18 @@ class Command(BaseCommand):
             return
 
         try:
+            trigger = (
+                CalibrationSnapshot.Trigger.FORCE
+                if force
+                else CalibrationSnapshot.Trigger.DAILY
+            )
             self.stdout.write(f"Refrescando calibración ({reason})...")
-            n_bins, w_from, w_to = refresh_calibration_bins()
+            snapshot, n_bins, w_from, w_to = refresh_calibration_bins(trigger=trigger)
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Bins de calibración: {n_bins} calculados "
-                    f"ventana {w_from.date()} → {w_to.date()}"
+                    f"Snapshot #{snapshot.id} ({trigger}): {n_bins} bins "
+                    f"ventana {w_from.date()} → {w_to.date()} "
+                    f"n={snapshot.n} LogLoss={snapshot.log_loss_1x2:.3f}"
                 )
             )
         except Exception as exc:

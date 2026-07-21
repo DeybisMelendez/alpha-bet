@@ -3,6 +3,44 @@ from datetime import datetime
 from matches.models import Match
 
 
+def last_snapshot():
+    """Devuelve el CalibrationSnapshot más reciente, o None si no hay."""
+    from validation.models import CalibrationSnapshot
+
+    return (
+        CalibrationSnapshot.objects.select_related("competition")
+        .order_by("-snapshot_at")
+        .first()
+    )
+
+
+def snapshots_in_range(date_from=None, date_to=None):
+    """Snapshots ordenados ascendentemente por snapshot_at.
+
+    Incluye prefetch_related de bins para evitar N+1 al construir las
+    series de la vista de evolución. Los bins de cada snapshot vienen
+    en ``snapshot.bins.all()``.
+
+    :param date_from/date_to: str 'YYYY-MM-DD' o date (filtro sobre
+        snapshot_at, no sobre window_from/to, para incluir snapshots
+        hechos en ese periodo).
+    """
+    from django.db.models import Prefetch
+    from validation.models import CalibrationBin, CalibrationSnapshot
+
+    qs = CalibrationSnapshot.objects.select_related("competition").all()
+    d_from = _parse_date(date_from)
+    if d_from:
+        qs = qs.filter(snapshot_at__date__gte=d_from)
+    d_to = _parse_date(date_to)
+    if d_to:
+        qs = qs.filter(snapshot_at__date__lte=d_to)
+    bin_qs = CalibrationBin.objects.order_by("market", "bin_start")
+    return qs.prefetch_related(Prefetch("bins", queryset=bin_qs)).order_by(
+        "snapshot_at"
+    )
+
+
 def finished_with_forecast_qs(
     date_from=None,
     date_to=None,

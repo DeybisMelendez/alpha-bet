@@ -91,16 +91,25 @@ class Command(BaseCommand):
         )
 
         if not no_calibration:
-            n_bins, w_from, w_to = refresh_calibration_bins(
+            from validation.models import CalibrationSnapshot
+
+            trigger = (
+                CalibrationSnapshot.Trigger.REBUILD
+                if rebuild
+                else CalibrationSnapshot.Trigger.MANUAL
+            )
+            snapshot, n_bins, w_from, w_to = refresh_calibration_bins(
                 date_from=date_from,
                 date_to=date_to,
                 season=season,
                 competition_code=competition_code,
+                trigger=trigger,
             )
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Bins de calibración: {n_bins} calculados "
-                    f"ventana {w_from.date()} → {w_to.date()}"
+                    f"Snapshot #{snapshot.id} ({trigger}): {n_bins} bins "
+                    f"ventana {w_from.date()} → {w_to.date()} "
+                    f"n={snapshot.n} LogLoss={snapshot.log_loss_1x2:.3f}"
                 )
             )
 
