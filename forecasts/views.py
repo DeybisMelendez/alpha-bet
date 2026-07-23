@@ -44,6 +44,7 @@ def _build_matrix_context(xg_home, xg_away):
     p_home, p_draw, p_away = probabilities_1x2(matrix)
     markets = market_probabilities(matrix)
     top_scores = top_correct_scores(matrix, n=5)
+    top_scores_sum_5 = sum(s["prob"] for s in top_scores)
 
     max_goals = settings.POISSON_MAX_GOALS
     goal_range = list(range(max_goals + 1))
@@ -83,6 +84,7 @@ def _build_matrix_context(xg_home, xg_away):
         "top_j": top_j,
         "top_prob": top_p,
         "top_scores": top_scores,
+        "top_scores_sum_5": top_scores_sum_5,
     }
 
 

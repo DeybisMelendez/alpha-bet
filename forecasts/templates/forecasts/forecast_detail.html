@@ -151,6 +151,13 @@
             <tr><td colspan="4" class="text-muted">Sin resultados.</td></tr>
             {% endfor %}
         </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="2" class="text-right text-muted small">Suma top 5</td>
+                <td class="text-center monospace{% if top_scores_sum_5 >= 0.58 %} prob-high{% endif %}">{% widthratio top_scores_sum_5 1 100 %}%</td>
+                <td class="text-center monospace text-muted small">{{ top_scores_sum_5|fair_odds }}</td>
+            </tr>
+        </tfoot>
     </table>
 </section>
 

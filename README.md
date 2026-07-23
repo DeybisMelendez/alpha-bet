@@ -160,6 +160,14 @@ Aplica `0.90·Elo + 0.10·EloLiga` entre temporadas. Idempotente vía
 `Team.last_regressed_season`: ejecutar una vez al inicio de cada temporada
 nueva.
 
+> **Automática desde el orquestador:** `daily_update` detecta el giro de
+> temporada al inicio (refresca `Competition.current_season` y aplica
+> `regress_elo(season, use_prior_league=True)` a cada temporada pendiente
+> **antes de `sync_matches**`). El comando manual `regress_elo <season>`
+> queda para retro-fixes a mitad/final de temporada (usa la
+> `LeagueStrength` de la propia temporada target, no la anterior). Flag
+> `--no-season-regress` omite la fase en `daily_update`.
+
 ### Mejora continua — probar variantes del modelo
 
 Si vas a cambiar parámetros en `core/settings.py` (K-factor, ρ Dixon-Coles,

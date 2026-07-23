@@ -210,6 +210,18 @@ Esto refleja cambios de plantilla, entrenadores y rendimiento sin perder complet
 > `Team.last_regressed_season` ya coincide con la temporada indicada.
 > `EloPromedioLiga` proviene de `LeagueStrength.average_elo` (promedio
 > por `competition × season`).
+>
+> El orquestador `daily_update` también la ejecuta de forma automática
+> al detectar giro de temporada: refresca `Competition.current_season`
+> desde `/v4/competitions`, calcula las temporadas pendientes
+> (`elo.engine.seasons_needing_regression`) y aplica `regress_elo(season,
+> use_prior_league=True)` a cada una antes de `sync_matches`. El flag
+> `use_prior_league=True` permite regresar *al inicio* de la nueva
+> temporada usando la última `LeagueStrength` anterior disponible (la
+> propia temporada nueva aún no tiene datos recalculados). El comando
+> manual sigue usando `use_prior_league=False` (usa la `LeagueStrength`
+> de la temporada indicada, pensada para ejecuciones a mitad/final de
+> temporada)..Flag `--no-season-regress` omite la fase en `daily_update`.
 
 ---
 

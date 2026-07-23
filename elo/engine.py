@@ -296,15 +296,29 @@ def process_pending_matches(limit=None):
     return processed
 
 
-def regress_elo(season, regress_factor=0.90, league_weight=0.10):
+def regress_elo(
+    season,
+    regress_factor=0.90,
+    league_weight=0.10,
+    use_prior_league=False,
+):
     """Regresión de Elo entre temporadas (docs/elo.md §Regresión).
 
     EloNuevo = regress_factor·EloAnterior + league_weight·EloPromedioLiga
 
-    Para cada equipo que tenga partidos en `season`, se calcula el Elo
-    promedio de las ligas (LeagueStrength) donde participó esa temporada
-    y se aplica la regresión. Idempotente: marca Team.last_regressed_season
-    y omite equipos ya regresados a `season` (o a una posterior).
+    Por defecto (use_prior_league=False) usa el LeagueStrength de la
+    propia `season` (requiere que ya exista con average_elo real): es el
+    modo del comando manual `regress_elo`, pensado para ejecutarse a
+    mitad/final de temporada cuando ya hay datos recalculados.
+
+    Con use_prior_league=True (uso desde daily_update al detectar el
+    inicio de temporada nueva) usa la última LeagueStrength *anterior*
+    a `season` de cada competición donde el equipo participó en cualquier
+    temporada previa. Esto permite aplicar la regresión *antes* de que
+    la nueva temporada acumule partidos.
+
+    Idempotente: marca Team.last_regressed_season y omite equipos ya
+    regresados a `season` (o a una posterior).
 
     Devuelve el número de equipos actualizados.
     """
@@ -316,23 +330,88 @@ def regress_elo(season, regress_factor=0.90, league_weight=0.10):
     updated = 0
     teams = Team.objects.exclude(last_regressed_season=season)
     for team in teams.iterator():
-        # Promedio de LeagueStrength de las competiciones donde el
-        # equipo estuvo durante `season`.
-        comp_ids = list(
-            TeamCompetition.objects.filter(
-                team=team, season=season
-            ).values_list("competition_id", flat=True)
-        )
-        if not comp_ids:
-            continue
-        avg = LeagueStrength.objects.filter(
-            competition_id__in=comp_ids, season=season
-        ).aggregate(avg=Avg("average_elo"))["avg"]
-        if avg is None:
-            continue
+        if use_prior_league:
+            # Competiciones donde el equipo estuvo en alguna temporada
+            # anterior a `season` (para tener un LeagueStrength plausible).
+            comp_ids = list(
+                TeamCompetition.objects.filter(
+                    team=team, season__lt=season
+                ).values_list("competition_id", flat=True).distinct()
+            )
+            if not comp_ids:
+                continue
+            # Última LeagueStrength anterior a `season` por competición.
+            # Tomamos la más reciente de cada una y promediamos.
+            avgs = []
+            for comp_id in comp_ids:
+                last_avg = LeagueStrength.objects.filter(
+                    competition_id=comp_id, season__lt=season
+                ).order_by("-season").values_list("average_elo", flat=True).first()
+                if last_avg is not None:
+                    avgs.append(last_avg)
+            if not avgs:
+                continue
+            avg = sum(avgs) / len(avgs)
+        else:
+            # Modo manual original: LeagueStrength de la propia `season`.
+            comp_ids = list(
+                TeamCompetition.objects.filter(
+                    team=team, season=season
+                ).values_list("competition_id", flat=True)
+            )
+            if not comp_ids:
+                continue
+            avg = LeagueStrength.objects.filter(
+                competition_id__in=comp_ids, season=season
+            ).aggregate(avg=Avg("average_elo"))["avg"]
+            if avg is None:
+                continue
         new_elo = regress_factor * team.elo + league_weight * avg
         team.elo = round(new_elo, 2)
         team.last_regressed_season = season
         team.save(update_fields=["elo", "last_regressed_season"])
         updated += 1
     return updated
+
+
+def seasons_needing_regression():
+    """Detecta qué temporadas requieren regresión de Elo al inicio de
+    una nueva temporada.
+
+    Compara `Competition.current_season` (refrescado por sync_competitions
+    desde football-data.org) contra la última `last_regressed_season`
+    observada entre los equipos ligados a esa competición. Si ningún
+    equipo fue regresado a `current_season` (o solo a una temporada
+    previa), la temporada `current_season` se considera pendiente.
+
+    Devuelve una lista ordenada (asc) de strings de temporada únicos.
+    Diseñado para ser llamado desde daily_update: es idempotente — una
+    vez aplicada la regresión a `current_season`, el set queda vacío
+    hasta que la competición avance de nuevo.
+    """
+    from django.db.models import Max
+
+    from teams.models import Competition, Team, TeamCompetition
+
+    pending = set()
+    qs = (
+        Competition.objects.exclude(current_season="")
+        .values("id", "current_season")
+    )
+    for comp in qs:
+        target = comp["current_season"]
+        if not target:
+            continue
+        # Máxima `last_regressed_season` entre todos los equipos que
+        # alguna vez jugaron esta competición (en cualquier temporada).
+        team_ids = TeamCompetition.objects.filter(
+            competition_id=comp["id"]
+        ).values_list("team_id", flat=True).distinct()
+        latest = (
+            Team.objects.filter(id__in=team_ids)
+            .aggregate(m=Max("last_regressed_season"))["m"]
+            or ""
+        )
+        if latest < target:
+            pending.add(target)
+    return sorted(pending)

@@ -26,7 +26,7 @@ python manage.py <command>
 | `sync_teams --competition ID --season YYYY` | Sincroniza equipos de una competición/temporada (`/v4/competitions/{id}/teams`). |
 | `load_history --seed --from 2020 [--to YYYY]` | Crea la cola `BackfillJob(PENDING)` para competición×temporada del rango (no consume requests). |
 | `load_history [--max-requests N] [--competitions A,B] [--seasons 2020:2026] [--rate-limit-seconds N] [--reset] [--no-elo --no-forecasts --no-recompute]` | Backfill progresivo respeta presupuesto diario; idempotente y reanudable. Usar `--years-back 4` para solo temporadas accesibles en plan Free (~2023+). |
-| `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge --no-evaluation --no-calibration --force-calibration]` | Orquestador diario: ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos, evaluación incremental de finalizados, calibración cada CALIBRATION_INTERVAL_DAYS=30 y purge de caché API. |
+| `daily_update [--days-back N --days-ahead N] [--no-prune --no-elo --no-forecasts --no-cache-purge --no-evaluation --no-calibration --force-calibration --no-season-regress]` | Orquestador diario: al inicio refresca `Competition.current_season` y aplica `regress_elo(use_prior_league=True)` a las temporadas pendientes (antes de `sync_matches` para no procesar Elo de finalizados con pool viejo), luego ventana semanal (SYNC_BACK_DAYS=3, FORECAST_SCHEDULE_DAYS=7), prune de pronósticos, evaluación incremental de finalizados, calibración cada CALIBRATION_INTERVAL_DAYS=30 y purge de caché API. |
 | `update_elo [--limit N]` | Procesa partidos finalizados sin Elo aplicado. |
 | `reset_elo [--dry-run]` | Reinicia Elo y pronósticos para reconstruir desde cero. |
 | `regress_elo <season> [--dry-run] [--regress-factor F] [--league-weight W]` | Regresión Elo entre temporadas (`0.90·Elo + 0.10·EloLiga`); idempotente vía `Team.last_regressed_season`. |
@@ -54,6 +54,18 @@ La fase `evaluate_forecasts` dentro del daily es **incremental** (sin
 varios días. La calibración se reconstruye solo si pasaron ≥30 días desde el
 último snapshot (o si se usa `--force-calibration`). Un rebuild manual
 intermedio reinicia el contador automáticamente.
+
+La fase de **regresión Elo entre temporadas** (al inicio del orquestador)
+refresca `Competition.current_season` con una petición a `/v4/competitions`
+(cacheada), detecta los giros pendientes vía
+`elo.engine.seasons_needing_regression` (compara `current_season` contra
+`Team.last_regressed_season`) y aplica `regress_elo(season,
+use_prior_league=True)` a cada temporada pendiente **antes** de `sync_matches`.
+El flag `use_prior_league=True` usa la última `LeagueStrength` anterior a la
+temporada target (la nueva aún no tiene datos recalculados). Idempotente: tras
+regresar a `current_season`, no vuelve a actuar hasta que el
+`current_season` avance. `--no-season-regress` omite toda la fase (sync_competitions
++ regresión).
 
 ```bash
 python manage.py daily_update

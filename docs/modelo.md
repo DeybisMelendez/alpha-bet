@@ -82,7 +82,16 @@ resumen operativo:
   nuevos (< `ELO_NEW_TEAM_MATCHES = 20`) usan `ELO_K_NEW = 40`.
 - Regresión entre temporadas: `0.90·Elo + 0.10·EloLiga` vía
   `python manage.py regress_elo <season>` (idempotente por
-  `Team.last_regressed_season`).
+  `Team.last_regressed_season`). El orquestador `daily_update` la
+  automatiza: al inicio refresca `Competition.current_season` desde
+  `/v4/competitions`, detecta las temporadas pendientes vía
+  `elo.engine.seasons_needing_regression` y aplica
+  `regress_elo(season, use_prior_league=True)` a cada una **antes** de
+  `sync_matches` (para no procesar Elo de finalizados con el pool viejo).
+  `use_prior_league=True` usa la última `LeagueStrength` anterior a la
+  temporada target (la nueva aún no tiene datos recalculados). El
+  comando manual sigue usando `use_prior_league=False` (pensado para
+  mitad/final de temporada). `--no-season-regress` omite toda la fase.
 - Penales: cuentan como **empate** en Elo (`elo/engine.py:99`). Los goles
   de tiempo extra sí forman parte del resultado oficial.
 
